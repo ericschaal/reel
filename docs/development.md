@@ -1,13 +1,12 @@
 # Development
 
-Reel is currently a Rust workspace containing a single backend application. The
-web and Android TV applications will be introduced when their first vertical
-slices are ready to be exercised.
+Reel currently contains a Rust backend, a disposable browser prototype, and an
+Expo universal-client candidate for web and Android TV.
 
 ## Prerequisites
 
 - A current stable Rust toolchain with `rustfmt` and Clippy.
-- Node.js and pnpm will be required once the web application is initialized.
+- Node.js and a JavaScript package manager are required for the client projects.
 - Access to test Jellyfin, Stremio, and Seerr instances will be required for
   integration work.
 
@@ -37,8 +36,8 @@ The backend listens on port 3000. Its initial health endpoint is available at
 ## Project structure
 
 - `apps/api` — Rust backend and orchestration logic.
-- `apps/web` — reserved for the React web application.
-- `apps/tv` — reserved for the native Android TV application.
+- `apps/web` — disposable browser prototypes; never promote them directly.
+- `apps/reel-client` — Expo web and Android TV implementation candidate.
 - `docs` — architecture, verified integration notes, playback research, and
   development guidance.
 

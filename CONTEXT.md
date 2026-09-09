@@ -12,7 +12,9 @@ It is intentionally narrower than the product overview in `README.md`.
 
 **Local copy**
 : An exact movie or episode that Jellyfin reports as playable. A completed
-  download is not a local copy until Jellyfin exposes the media.
+  download is not a local copy until Jellyfin exposes the media. A local copy
+  remains the preferred source whether Jellyfin selects direct play, remuxing,
+  direct streaming, or transcoding for the requesting player.
 
 **Availability**
 : Reel's current knowledge of whether canonical media has a playable local copy.
@@ -28,17 +30,61 @@ It is intentionally narrower than the product overview in `README.md`.
 **Playback Resolution**
 : The Reel capability that chooses or resolves a playback source for exact
   canonical media. It prefers a local copy unless the user explicitly overrides
-  that preference, and it reports actionable failures rather than switching
-  sources silently.
+  that preference. When no local copy is available, it tries remote candidates
+  in the order returned by the configured Stremio add-on. A user may explicitly
+  override either choice. Playback Resolution reports actionable failures rather
+  than switching sources silently after a source has been selected.
+
+**Candidate order**
+: The priority order of remote playback sources returned by the configured
+  Stremio add-on. Reel does not independently rank candidates in the initial
+  implementation. It preserves this order for automatic resolution and for the
+  user's source picker.
+
+**Source discovery**
+: The side-effect-free retrieval of available playback sources. Opening **Other
+  Sources** may contact configured add-ons, but it must not activate a torrent or
+  ask the Stremio streaming server to resolve a candidate.
+
+**Source activation**
+: Turning a selected playback source into a playback descriptor. Activation may
+  contact Jellyfin or the Stremio streaming server and may start remote streaming
+  work. Reel performs it only in response to **Watch Now** or an explicit source
+  selection. Activation considers the requesting player's capabilities when
+  asking Jellyfin for playback information.
+
+**Resolution fallback**
+: If a candidate cannot be turned into a playback descriptor, Playback
+  Resolution automatically tries the next candidate in candidate order. Once a
+  playback descriptor has been handed to the player, Reel must not silently
+  switch sources. A playback failure instead offers the user an explicit **Try
+  Next Source** or **Choose Source** action.
 
 **Playback descriptor**
 : The normalized instructions a Reel client needs to start playback. It may
   include a playable URL, request headers, format information, tracks, and the
-  data needed to report progress. Its exact shape is not yet decided.
+  data needed to report progress. For the MVP, a descriptor sent to a trusted
+  Reel client may contain upstream credential material required to play the
+  selected source. Its exact shape is not yet decided.
+
+**Player capabilities**
+: A normalized, dynamically reported description of what the requesting player
+  can play, including relevant containers, codecs, streaming protocols, HDR
+  modes, and practical limits. Clients do not send Jellyfin-specific types. The
+  Jellyfin module translates player capabilities into Jellyfin playback
+  information, using conservative defaults when capabilities are unavailable.
 
 **Playback session**
 : Reel's record of an attempted or active playback, including its selected
   source and progress synchronization state.
+
+**Trusted Reel client**
+: The provisional MVP assumption that the native Android TV and React web
+  clients run on user-controlled devices on a private network. They may receive
+  the upstream credentials required for direct playback. Reel still keeps
+  unrelated integration credentials out of playback descriptors. External
+  access and untrusted clients are unsupported until this assumption is
+  revisited.
 
 ## Acquisition
 

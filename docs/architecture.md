@@ -2,16 +2,16 @@
 
 ## Current shape
 
-Reel begins as a modular monolith with three independently deployable
-applications:
+Reel begins as a modular monolith with independently deployable applications:
 
 - `reel-api`, a Rust backend that owns orchestration, credentials, normalized
   state, and playback policy;
-- a React web application;
-- a native Android TV application built with Kotlin and Compose for TV.
+- an Expo universal-client candidate targeting web and Android TV.
 
-Only the backend is initialized. The web and TV applications should be created
-when their first end-to-end behavior is ready to exercise.
+The backend and Expo client scaffold are initialized. A separate disposable web
+prototype is used to settle interactions before they are rewritten with React
+Native primitives. The final Android TV implementation remains subject to the
+playback and focus spike recorded in ADR 0002.
 
 ## Backend organization
 
@@ -24,10 +24,13 @@ translated into Reel's domain language at the point of use. Separate workspace
 crates are introduced only after actual reuse, isolation, or build constraints
 justify a seam.
 
-The backend returns normalized playback descriptors to clients. Media bytes
-should flow directly from Jellyfin or the configured Stremio streaming server
-unless authentication or compatibility testing demonstrates a need for a Reel
-proxy.
+The backend returns normalized playback descriptors to clients. For the
+private-network MVP, the native TV and React web clients are trusted and a
+descriptor may include upstream credential material required by the selected
+source. This keeps media bytes flowing directly from Jellyfin or the configured
+Stremio streaming server. Unrelated integration credentials remain in the
+backend. External access and untrusted clients are unsupported until this
+assumption is revisited.
 
 ## State ownership
 

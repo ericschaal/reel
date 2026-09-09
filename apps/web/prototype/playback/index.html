@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark" />
+    <title>Reel — Playback prototype</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <!-- Three variants of the one-movie playback flow, switchable via ?variant=, on /prototype/playback. -->
+    <div id="app"></div>
+    <aside class="state-panel" aria-live="polite">
+      <span>Prototype state</span>
+      <pre id="state"></pre>
+    </aside>
+    <nav class="variant-switcher" aria-label="Prototype variants">
+      <button type="button" data-variant-direction="-1" aria-label="Previous variant">←</button>
+      <span id="variant-label"></span>
+      <button type="button" data-variant-direction="1" aria-label="Next variant">→</button>
+    </nav>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

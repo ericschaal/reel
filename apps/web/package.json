@@ -1,0 +1,10 @@
+{
+  "name": "reel-web-prototype",
+  "private": true,
+  "scripts": {
+    "prototype": "node prototype-server.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
