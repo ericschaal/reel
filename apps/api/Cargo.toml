@@ -1,0 +1,9 @@
+[package]
+name = "reel-api"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+tokio = { workspace = true, features = ["full"] }
+serde = { workspace = true, features = ["derive"] }
+axum = { workspace = true }
