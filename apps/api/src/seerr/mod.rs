@@ -86,6 +86,34 @@ impl Seerr {
             .await
     }
 
+    pub async fn movies_by_genre(
+        &self,
+        genre_id: i64,
+        page: Option<u32>,
+        language: Option<&str>,
+    ) -> Result<DiscoverResponse> {
+        self.http
+            .get_with_query(
+                &format!("discover/movies/genre/{genre_id}"),
+                &PageQuery { page, language },
+            )
+            .await
+    }
+
+    pub async fn series_by_genre(
+        &self,
+        genre_id: i64,
+        page: Option<u32>,
+        language: Option<&str>,
+    ) -> Result<DiscoverResponse> {
+        self.http
+            .get_with_query(
+                &format!("discover/tv/genre/{genre_id}"),
+                &PageQuery { page, language },
+            )
+            .await
+    }
+
     pub async fn search(&self, query: &SearchQuery) -> Result<DiscoverResponse> {
         let mut parameters = vec![format!(
             "query={}",

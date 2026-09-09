@@ -1,22 +1,30 @@
 use std::io;
 
-use axum::{Json, Router, routing::get};
-use serde::Serialize;
+use reel_api::{app, catalogue::Catalogue, jellyfin::Jellyfin, seerr::Seerr};
 
 #[tokio::main]
 async fn main() -> Result<(), io::Error> {
-    let app = Router::new().route("/healthz", get(health));
+    tracing_subscriber::fmt::init();
+
+    let catalogue = Catalogue::new(
+        Seerr::new(
+            required_env("SEERR_BASE_URL")?,
+            required_env("SEERR_API_KEY")?,
+        )
+        .map_err(io::Error::other)?,
+        Jellyfin::new(
+            required_env("JELLYFIN_BASE_URL")?,
+            required_env("JELLYFIN_API_KEY")?,
+        )
+        .map_err(io::Error::other)?,
+    );
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
 
-    axum::serve(listener, app).await
+    axum::serve(listener, app(catalogue)).await
 }
 
-async fn health() -> Json<Health> {
-    Json(Health { status: "ok" })
-}
-
-#[derive(Serialize)]
-struct Health {
-    status: &'static str,
+fn required_env(name: &str) -> io::Result<String> {
+    std::env::var(name)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, format!("{name} must be set")))
 }

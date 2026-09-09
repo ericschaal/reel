@@ -12,6 +12,10 @@ axum = { workspace = true }
 reqwest = { workspace = true, features = ["json", "query"] }
 url.workspace = true
 percent-encoding.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+base64.workspace = true
 
 [dev-dependencies]
 dotenvy.workspace = true
+tower = { version = "0.5", features = ["util"] }
