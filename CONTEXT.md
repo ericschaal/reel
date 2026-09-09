@@ -76,15 +76,28 @@ It is intentionally narrower than the product overview in `README.md`.
 
 **Playback session**
 : Reel's record of an attempted or active playback, including its selected
-  source and progress synchronization state.
+  source and progress synchronization state. Reel owns watch progress and resume
+  state; it does not synchronize them through a Jellyfin user. The disposable
+  prototype may keep this state in `reel-client`. A later multi-device version
+  moves it behind the Reel API.
+
+**Jellyfin service identity**
+: Reel authenticates to Jellyfin with a dedicated API key. It does not log in as,
+  impersonate, or hold an access token for a Jellyfin user. Jellyfin requires a
+  user identifier as context for some item-detail and playback-negotiation
+  operations, so Reel supplies the dedicated `reel` user's identifier only for
+  those operations. Reel does not use Jellyfin resume, played-state, or playback
+  progress reporting. The API key is a privileged backend credential and must
+  not be shipped in a client application.
 
 **Trusted Reel client**
 : The provisional MVP assumption that the native Android TV and React web
   clients run on user-controlled devices on a private network. They may receive
-  the upstream credentials required for direct playback. Reel still keeps
-  unrelated integration credentials out of playback descriptors. External
-  access and untrusted clients are unsupported until this assumption is
-  revisited.
+  narrowly scoped upstream credentials required for direct playback. The
+  Jellyfin service API key is explicitly excluded and remains backend-only. Reel
+  still keeps unrelated integration credentials out of playback descriptors.
+  External access and untrusted clients are unsupported until this assumption
+  is revisited.
 
 ## Acquisition
 
