@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
+use serde_with::skip_serializing_none;
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(rename_all = "PascalCase")]
@@ -131,45 +132,31 @@ impl SortOrder {
     }
 }
 
+#[skip_serializing_none]
 #[derive(Debug, Clone, Serialize, Default, PartialEq)]
 #[serde(rename_all = "PascalCase")]
 pub struct PlaybackInfoRequest {
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub user_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub max_streaming_bitrate: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub start_time_ticks: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub audio_stream_index: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub subtitle_stream_index: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub max_audio_channels: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub media_source_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub device_profile: Option<DeviceProfile>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub enable_direct_play: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub enable_direct_stream: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub enable_transcoding: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub allow_video_stream_copy: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub allow_audio_stream_copy: Option<bool>,
 }
 
+#[skip_serializing_none]
 #[derive(Debug, Clone, Serialize, Default, PartialEq)]
 #[serde(rename_all = "PascalCase")]
 pub struct DeviceProfile {
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub max_streaming_bitrate: Option<i32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub max_static_bitrate: Option<i32>,
     #[serde(default)]
     pub direct_play_profiles: Vec<DirectPlayProfile>,
@@ -183,18 +170,18 @@ pub struct DeviceProfile {
     pub subtitle_profiles: Vec<SubtitleProfile>,
 }
 
+#[skip_serializing_none]
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "PascalCase")]
 pub struct DirectPlayProfile {
     pub container: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub audio_codec: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub video_codec: Option<String>,
     #[serde(rename = "Type")]
     pub profile_type: DlnaProfileType,
 }
 
+#[skip_serializing_none]
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "PascalCase")]
 pub struct TranscodingProfile {
@@ -204,7 +191,6 @@ pub struct TranscodingProfile {
     pub video_codec: String,
     pub audio_codec: String,
     pub protocol: MediaStreamProtocol,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub max_audio_channels: Option<String>,
     #[serde(default)]
     pub estimate_content_length: bool,

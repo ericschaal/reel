@@ -7,9 +7,11 @@ edition.workspace = true
 tokio = { workspace = true, features = ["full"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
+serde_with.workspace = true
 axum = { workspace = true }
 reqwest = { workspace = true, features = ["json", "query"] }
 url.workspace = true
+percent-encoding.workspace = true
 
 [dev-dependencies]
 dotenvy.workspace = true

@@ -1,20 +1,19 @@
-mod error;
 mod types;
 
 use std::fmt::Write as _;
 
 use reqwest::{
-    Client as HttpClient, Response, Url,
+    Url,
     header::{ACCEPT, AUTHORIZATION, HeaderMap, HeaderValue},
 };
-use serde::{Serialize, de::DeserializeOwned};
 
-pub use error::{Error, Result};
+use crate::integration::{Integration, JsonClient, parse_base_url};
+
+pub use crate::integration::{Error, Result};
 pub use types::*;
 
 const ITEM_FIELDS: &str = "Overview,ProviderIds,MediaStreams";
 const IMAGE_TYPES: &str = "Primary,Backdrop,Logo,Thumb";
-const MAX_ERROR_BODY_LENGTH: usize = 8 * 1024;
 
 #[derive(Debug, Clone)]
 pub struct ClientInfo {
@@ -37,8 +36,7 @@ impl Default for ClientInfo {
 
 #[derive(Clone)]
 pub struct Jellyfin {
-    base_url: Url,
-    http: HttpClient,
+    http: JsonClient,
 }
 
 impl Jellyfin {
@@ -55,11 +53,7 @@ impl Jellyfin {
         access_token: Option<&str>,
         client_info: ClientInfo,
     ) -> Result<Self> {
-        let mut base_url = Url::parse(base_url.as_ref()).map_err(Error::InvalidBaseUrl)?;
-        if !base_url.path().ends_with('/') {
-            let path = format!("{}/", base_url.path());
-            base_url.set_path(&path);
-        }
+        let base_url = parse_base_url(Integration::Jellyfin, base_url.as_ref())?;
 
         let mut headers = HeaderMap::new();
         headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
@@ -71,25 +65,26 @@ impl Jellyfin {
         if let Some(token) = access_token.filter(|token| !token.is_empty()) {
             let _ = write!(authorization, ", Token=\"{token}\"");
         }
-        headers.insert(
-            AUTHORIZATION,
-            HeaderValue::from_str(&authorization).map_err(Error::InvalidAuthorizationHeader)?,
-        );
+        let mut authorization = HeaderValue::from_str(&authorization).map_err(|source| {
+            Error::invalid_authentication_header(Integration::Jellyfin, source)
+        })?;
+        authorization.set_sensitive(true);
+        headers.insert(AUTHORIZATION, authorization);
 
-        let http = HttpClient::builder().default_headers(headers).build()?;
-        Ok(Self { base_url, http })
+        let http = JsonClient::new(Integration::Jellyfin, base_url, headers)?;
+        Ok(Self { http })
     }
 
     pub async fn public_system_info(&self) -> Result<PublicSystemInfo> {
-        self.get("System/Info/Public", &[]).await
+        self.http.get("System/Info/Public").await
     }
 
     pub async fn system_info(&self) -> Result<PublicSystemInfo> {
-        self.get("System/Info", &[]).await
+        self.http.get("System/Info").await
     }
 
     pub async fn users(&self) -> Result<Vec<User>> {
-        self.get("Users", &[]).await
+        self.http.get("Users").await
     }
 
     pub async fn items(&self, query: &ItemsQuery) -> Result<ItemQueryResult> {
@@ -117,7 +112,7 @@ impl Jellyfin {
             parameters.push(("sortOrder", order.as_str().into()));
         }
 
-        self.get("Items", &parameters).await
+        self.http.get_with_query("Items", &parameters).await
     }
 
     pub async fn search(&self, term: &str, limit: u32) -> Result<ItemQueryResult> {
@@ -132,11 +127,12 @@ impl Jellyfin {
     }
 
     pub async fn item(&self, item_id: &str, user_id: &str) -> Result<Item> {
-        self.get(
-            &format!("Items/{item_id}"),
-            &[("userId", user_id.to_owned())],
-        )
-        .await
+        self.http
+            .get_with_query(
+                &format!("Items/{item_id}"),
+                &[("userId", user_id.to_owned())],
+            )
+            .await
     }
 
     pub async fn latest(&self, user_id: &str, limit: u32) -> Result<Vec<Item>> {
@@ -144,12 +140,13 @@ impl Jellyfin {
             common_item_parameters(&[ItemType::Movie, ItemType::Series, ItemType::Episode]);
         parameters.push(("userId", user_id.to_owned()));
         push_number(&mut parameters, "limit", Some(limit));
-        self.get("Items/Latest", &parameters).await
+        self.http.get_with_query("Items/Latest", &parameters).await
     }
 
     pub async fn seasons(&self, series_id: &str) -> Result<ItemQueryResult> {
         let parameters = common_item_parameters(&[]);
-        self.get(&format!("Shows/{series_id}/Seasons"), &parameters)
+        self.http
+            .get_with_query(&format!("Shows/{series_id}/Seasons"), &parameters)
             .await
     }
 
@@ -160,7 +157,8 @@ impl Jellyfin {
     ) -> Result<ItemQueryResult> {
         let mut parameters = common_item_parameters(&[]);
         push_optional(&mut parameters, "seasonId", season_id);
-        self.get(&format!("Shows/{series_id}/Episodes"), &parameters)
+        self.http
+            .get_with_query(&format!("Shows/{series_id}/Episodes"), &parameters)
             .await
     }
 
@@ -172,7 +170,8 @@ impl Jellyfin {
     ) -> Result<PlaybackInfoResponse> {
         let mut request = request.clone();
         request.user_id = Some(user_id.to_owned());
-        self.post_json(&format!("Items/{item_id}/PlaybackInfo"), &request)
+        self.http
+            .post_json(&format!("Items/{item_id}/PlaybackInfo"), &request)
             .await
     }
 
@@ -182,7 +181,9 @@ impl Jellyfin {
         image_type: ImageType,
         options: &ImageOptions,
     ) -> Result<Url> {
-        let mut url = self.endpoint(&format!("Items/{item_id}/Images/{}", image_type.as_str()))?;
+        let mut url = self
+            .http
+            .endpoint(&format!("Items/{item_id}/Images/{}", image_type.as_str()))?;
         {
             let mut query = url.query_pairs_mut();
             if let Some(value) = options.max_width {
@@ -215,7 +216,7 @@ impl Jellyfin {
             Some(container) => format!("Videos/{item_id}/stream.{container}"),
             None => format!("Videos/{item_id}/stream"),
         };
-        let mut url = self.endpoint(&path)?;
+        let mut url = self.http.endpoint(&path)?;
         {
             let mut query = url.query_pairs_mut();
             query.append_pair("static", "true");
@@ -228,42 +229,7 @@ impl Jellyfin {
     }
 
     pub fn resolve_url(&self, path_or_url: &str) -> Result<Url> {
-        match Url::parse(path_or_url) {
-            Ok(url) => Ok(url),
-            Err(url::ParseError::RelativeUrlWithoutBase) => self
-                .base_url
-                .join(path_or_url)
-                .map_err(Error::InvalidBaseUrl),
-            Err(error) => Err(Error::InvalidBaseUrl(error)),
-        }
-    }
-
-    async fn get<T: DeserializeOwned>(&self, path: &str, query: &[(&str, String)]) -> Result<T> {
-        let response = self
-            .http
-            .get(self.endpoint(path)?)
-            .query(query)
-            .send()
-            .await?;
-        decode_json(response).await
-    }
-
-    async fn post_json<B: Serialize + ?Sized, T: DeserializeOwned>(
-        &self,
-        path: &str,
-        body: &B,
-    ) -> Result<T> {
-        let response = self
-            .http
-            .post(self.endpoint(path)?)
-            .json(body)
-            .send()
-            .await?;
-        decode_json(response).await
-    }
-
-    fn endpoint(&self, path: &str) -> Result<Url> {
-        self.base_url.join(path).map_err(Error::InvalidBaseUrl)
+        self.http.resolve_url(path_or_url)
     }
 }
 
@@ -324,20 +290,4 @@ fn push_number<T: ToString>(
     if let Some(value) = value {
         parameters.push((name, value.to_string()));
     }
-}
-
-async fn decode_json<T: DeserializeOwned>(response: Response) -> Result<T> {
-    let response = checked(response).await?;
-    response.json().await.map_err(Error::Transport)
-}
-
-async fn checked(response: Response) -> Result<Response> {
-    let status = response.status();
-    if status.is_success() {
-        return Ok(response);
-    }
-
-    let mut body = response.text().await.unwrap_or_default();
-    body.truncate(MAX_ERROR_BODY_LENGTH);
-    Err(Error::Api { status, body })
 }
