@@ -33,7 +33,9 @@ first available remote source; the dropdown exposes every available choice.
 Series titles keep this action fixed on the authoritative next-up episode while
 season browsing stays independent. Opening any episode, player, or download
 flow uses a full-screen navigation surface rather than a modal so the same
-information hierarchy can later support TV focus navigation.
+information hierarchy can later support TV focus navigation. Playback uses its
+own URL-backed route, so refreshing an open player reactivates the selected
+Jellyfin movie or episode instead of returning to title details.
 
 ## Checks
 

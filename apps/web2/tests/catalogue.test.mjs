@@ -6,6 +6,7 @@ import {
   collectionHref,
   catalogueRailProxyHref,
   collectionProxyHref,
+  playbackHref,
   reelProxyPathAllowed,
   titleHref,
 } from "../app/catalogue.ts";
@@ -119,9 +120,13 @@ test("download actions become downloaded status for local media", async () => {
 });
 
 test("local movies and exact episodes activate Jellyfin playback", async () => {
-  const [playback, videoPlayer, titleDetail, episodeDetail, nextConfig] = await Promise.all([
+  const [playback, playbackRoute, videoPlayer, titleDetail, episodeDetail, nextConfig] = await Promise.all([
     readFile(
       new URL("../app/title/[kind]/[id]/playback.tsx", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../app/title/[kind]/[id]/play/playback-route.tsx", import.meta.url),
       "utf8",
     ),
     readFile(
@@ -142,6 +147,8 @@ test("local movies and exact episodes activate Jellyfin playback", async () => {
   assert.match(playback, /fetch\("\/v1\/playback\/activate"/);
   assert.match(playback, /seriesTmdbId: media\.tmdbId/);
   assert.match(playback, /episodeNumber: episode\.episodeNumber/);
+  assert.match(playbackRoute, /activateJellyfinPlayback/);
+  assert.match(titleDetail, /router\.push\(playbackHref/);
   assert.match(videoPlayer, /void import\("hls\.js"\)/);
   assert.match(videoPlayer, /<video/);
   assert.doesNotMatch(`${playback}${videoPlayer}`, /exampleSources|Stremio/);
@@ -177,9 +184,9 @@ test("custom player exposes complete playback and track controls", async () => {
 });
 
 test("track changes keep the mounted player and swap its descriptor in place", async () => {
-  const [titleDetail, player] = await Promise.all([
+  const [playbackRoute, player] = await Promise.all([
     readFile(
-      new URL("../app/title/[kind]/[id]/title-detail.tsx", import.meta.url),
+      new URL("../app/title/[kind]/[id]/play/playback-route.tsx", import.meta.url),
       "utf8",
     ),
     readFile(
@@ -188,16 +195,16 @@ test("track changes keep the mounted player and swap its descriptor in place", a
     ),
   ]);
 
-  assert.match(titleDetail, /async function selectPlaybackTracks/);
-  assert.match(titleDetail, /return await activateJellyfinPlayback/);
-  const trackActivation = titleDetail.slice(
-    titleDetail.indexOf("async function selectPlaybackTracks"),
-    titleDetail.indexOf("function openDownload"),
+  assert.match(playbackRoute, /async function selectPlaybackTracks/);
+  assert.match(playbackRoute, /return await activateJellyfinPlayback/);
+  const trackActivation = playbackRoute.slice(
+    playbackRoute.indexOf("async function selectPlaybackTracks"),
+    playbackRoute.indexOf("function closePlayback"),
   );
   assert.match(trackActivation, /media,\s*episode,\s*undefined,/);
   assert.doesNotMatch(trackActivation, /media,\s*episode,\s*resumeSeconds,/);
   assert.doesNotMatch(
-    titleDetail,
+    playbackRoute,
     /onSelectTracks=\{\(resumeSeconds, selection\) =>\s*playLocal/,
   );
   assert.match(player, /useState\(playback\.descriptor\)/);
@@ -216,6 +223,53 @@ test("track changes keep the mounted player and swap its descriptor in place", a
       trackSwap.indexOf("await onSelectTracks"),
   );
   assert.doesNotMatch(player, /setHasFrozenFrame/);
+});
+
+test("playback links preserve progress and identify the exact episode", () => {
+  const episode = {
+    id: "tmdb:episode:99",
+    tmdbId: 99,
+    seasonNumber: 3,
+    episodeNumber: 7,
+    title: "Episode",
+    overview: null,
+    airDate: null,
+    rating: null,
+    still: null,
+    runtimeMinutes: null,
+    availability: "local",
+  };
+  const href = playbackHref(
+    {
+      kind: "series",
+      id: "tmdb:series:12",
+      tmdbId: 12,
+      title: "Series",
+      overview: null,
+      year: 2026,
+      rating: null,
+      images: { poster: null, backdrop: null },
+      availability: "episodeBased",
+      progress: {
+        positionSeconds: 20,
+        durationSeconds: 100,
+        lastSourceId: "local",
+        lastSourceLabel: "Jellyfin",
+        lastSourceKind: "local",
+        episodeId: episode.id,
+      },
+    },
+    episode,
+    20,
+  );
+  const url = new URL(href, "http://reel.local");
+  assert.equal(url.pathname, "/title/series/tmdb%3Aseries%3A12/play");
+  assert.equal(url.searchParams.get("season"), "3");
+  assert.equal(url.searchParams.get("episode"), "7");
+  assert.equal(url.searchParams.get("start"), "20");
+  assert.equal(url.searchParams.get("progress"), "20");
+  assert.equal(url.searchParams.has("mediaUrl"), false);
+  assert.equal(url.searchParams.has("sessionId"), false);
 });
 
 test("all secondary pages use the shared navigation header", async () => {
