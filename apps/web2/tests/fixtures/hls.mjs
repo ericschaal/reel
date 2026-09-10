@@ -4,7 +4,8 @@ export default class Hls {
     'MANIFEST_PARSED', 'AUDIO_TRACK_SWITCHED', 'SUBTITLE_TRACK_SWITCH',
     'SUBTITLE_TRACKS_UPDATED', 'ERROR',
   ].map(name => [name, name]));
-  static isSupported() { return true; }
+  static supported = true;
+  static isSupported() { return Hls.supported; }
   constructor(config) {
     this.config = config;
     this.handlers = new Map();

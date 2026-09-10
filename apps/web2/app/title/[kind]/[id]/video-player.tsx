@@ -44,6 +44,7 @@ export function ReelVideoPlayer({
   const resumePositionRef = useRef(playback.resumeSeconds ?? 0);
   const resumeAfterSwitchRef = useRef<boolean | null>(true);
   const frameCallbackRef = useRef<number | null>(null);
+  const trackSwitchPhaseRef = useRef<"activating" | "loading" | null>(null);
   const [descriptor, setDescriptor] = useState(playback.descriptor);
   const [playerError, setPlayerError] = useState<string | null>(null);
   const [trackSwitchError, setTrackSwitchError] = useState<string | null>(null);
@@ -177,9 +178,15 @@ export function ReelVideoPlayer({
   }, []);
 
   const revealDecodedFrame = useCallback((video: HTMLVideoElement) => {
-    if (video.seeking) return;
+    if (
+      trackSwitchPhaseRef.current === "activating" ||
+      video.seeking ||
+      video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA
+    ) return;
     const reveal = () => {
+      if (trackSwitchPhaseRef.current === "activating") return;
       frameCallbackRef.current = null;
+      trackSwitchPhaseRef.current = null;
       hideFrozenFrame();
       setIsSwitchingTracks(false);
     };
@@ -188,7 +195,10 @@ export function ReelVideoPlayer({
     }
     // loadeddata/seeked already supplies the paused frame. No further frame
     // callback is guaranteed until playback resumes.
-    if (!video.paused && "requestVideoFrameCallback" in video) {
+    if (
+      (!video.paused || resumeAfterSwitchRef.current === true) &&
+      "requestVideoFrameCallback" in video
+    ) {
       frameCallbackRef.current = video.requestVideoFrameCallback(reveal);
     } else {
       reveal();
@@ -201,6 +211,11 @@ export function ReelVideoPlayer({
       if (!video || isSwitchingTracks) return;
       const position = video.currentTime;
       const shouldResume = !video.paused;
+      trackSwitchPhaseRef.current = "activating";
+      if (frameCallbackRef.current !== null) {
+        video.cancelVideoFrameCallback(frameCallbackRef.current);
+        frameCallbackRef.current = null;
+      }
       captureCurrentFrame();
       video.pause();
       setIsSwitchingTracks(true);
@@ -231,6 +246,7 @@ export function ReelVideoPlayer({
         setMenu(null);
       } catch (reason) {
         if (videoRef.current !== video) return;
+        trackSwitchPhaseRef.current = null;
         hideFrozenFrame();
         setIsSwitchingTracks(false);
         if (shouldResume) void video.play().catch(() => setControlsVisible(true));
@@ -288,6 +304,9 @@ export function ReelVideoPlayer({
     if (!video) return;
     let cancelled = false;
     let destroyHls: (() => void) | undefined;
+    if (trackSwitchPhaseRef.current === "activating") {
+      trackSwitchPhaseRef.current = "loading";
+    }
 
     const seekToResumePosition = () => {
       if (
@@ -325,19 +344,26 @@ export function ReelVideoPlayer({
 
     video.addEventListener("loadedmetadata", seekToResumePosition, { once: true });
 
-    if (
-      descriptor.delivery === "direct" ||
-      video.canPlayType("application/vnd.apple.mpegurl")
-    ) {
+    const loadNativeVideo = () => {
       video.textTracks.addEventListener("addtrack", syncNativeTextTracks);
       video.addEventListener("loadedmetadata", syncNativeTextTracks);
       video.src = descriptor.mediaUrl;
       syncNativeTextTracks();
+    };
+
+    if (descriptor.delivery === "direct") {
+      loadNativeVideo();
     } else {
+      // Prefer MSE for consistent subtitle rendition support. Some browsers
+      // advertise native HLS but fail to demux playlists containing subtitles.
       void import("hls.js")
         .then(({ default: Hls }) => {
           if (cancelled) return;
           if (!Hls.isSupported()) {
+            if (video.canPlayType("application/vnd.apple.mpegurl")) {
+              loadNativeVideo();
+              return;
+            }
             throw new Error("This browser cannot play HLS video.");
           }
           const hls = new Hls({
@@ -583,6 +609,7 @@ export function ReelVideoPlayer({
         onLoadedData={(event) => revealDecodedFrame(event.currentTarget)}
         onSeeked={(event) => revealDecodedFrame(event.currentTarget)}
         onCanPlay={(event) => {
+          if (trackSwitchPhaseRef.current === "activating") return;
           setIsBuffering(false);
           const shouldResume = resumeAfterSwitchRef.current;
           resumeAfterSwitchRef.current = null;
@@ -628,7 +655,7 @@ export function ReelVideoPlayer({
         </div>
       ) : null}
 
-      {!isPlaying && !isBuffering && !playerError ? (
+      {!isPlaying && !isBuffering && !isSwitchingTracks && !playerError ? (
         <button
           type="button"
           className="absolute top-1/2 left-1/2 grid size-20 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full border border-white/20 bg-black/35 shadow-2xl backdrop-blur-xl transition hover:scale-105 hover:bg-black/55"

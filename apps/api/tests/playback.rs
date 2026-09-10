@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use axum::{
     Json, Router,
-    body::{Body, to_bytes},
+    body::{Body, Bytes, to_bytes},
     extract::{OriginalUri, State},
     http::{HeaderMap, Request, StatusCode, header},
     response::{IntoResponse, Response},
@@ -17,6 +17,7 @@ use tower::ServiceExt;
 struct Calls {
     paths: Vec<String>,
     range: Option<String>,
+    playback_requests: Vec<Value>,
 }
 
 struct Fixture {
@@ -86,10 +87,15 @@ async fn mock_jellyfin(
     State(calls): State<Arc<Mutex<Calls>>>,
     OriginalUri(uri): OriginalUri,
     headers: HeaderMap,
+    body: Bytes,
 ) -> Response {
+    let request: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
     {
         let mut calls = calls.lock().unwrap();
         calls.paths.push(uri.path().to_owned());
+        if uri.path().ends_with("/PlaybackInfo") {
+            calls.playback_requests.push(request.clone());
+        }
         if let Some(range) = headers.get(header::RANGE) {
             calls.range = range.to_str().ok().map(str::to_owned);
         }
@@ -131,7 +137,13 @@ async fn mock_jellyfin(
             "MediaSources":[{
                 "Id":"episode-source","Container":"mkv","RunTimeTicks":36000000000_i64,
                 "SupportsDirectPlay":false,"SupportsDirectStream":true,"SupportsTranscoding":true,
-                "TranscodingUrl":"/Videos/jf-episode/master.m3u8?ApiKey=secret-api-key",
+                "TranscodingUrl": if request["MediaSourceId"] == "episode-source"
+                    && request["SubtitleStreamIndex"] == 4
+                    && request["DeviceProfile"]["SubtitleProfiles"][0]["Method"] == "Hls" {
+                    "/Videos/jf-episode/master.m3u8?subtitles=true&ApiKey=secret-api-key"
+                } else {
+                    "/Videos/jf-episode/master.m3u8?ApiKey=secret-api-key"
+                },
                 "TranscodingContainer":"ts",
                 "DefaultAudioStreamIndex":1,
                 "DefaultSubtitleStreamIndex":4,
@@ -157,12 +169,24 @@ async fn mock_jellyfin(
             .into_response(),
         "/Videos/jf-episode/master.m3u8" => (
             [(header::CONTENT_TYPE, "application/vnd.apple.mpegurl")],
-            "#EXTM3U\nsegments/0.ts\n",
+            if uri.query().is_some_and(|query| query.contains("subtitles=true")) {
+                "#EXTM3U\n#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID=\"subs\",NAME=\"French (Forced)\",URI=\"episode-source/Subtitles/4/subtitles.m3u8?ApiKey=secret-api-key\"\n#EXT-X-STREAM-INF:SUBTITLES=\"subs\"\nsegments/0.ts\n"
+            } else {
+                "#EXTM3U\nsegments/0.ts\n"
+            },
         )
             .into_response(),
         "/Videos/jf-episode/segments/0.ts" => {
             ([(header::CONTENT_TYPE, "video/mp2t")], "segment").into_response()
         }
+        "/Videos/jf-episode/episode-source/Subtitles/4/subtitles.m3u8" => (
+            [(header::CONTENT_TYPE, "application/vnd.apple.mpegurl")],
+            "#EXTM3U\n#EXTINF:30,\n0.vtt?ApiKey=secret-api-key\n",
+        ).into_response(),
+        "/Videos/jf-episode/episode-source/Subtitles/4/0.vtt" => (
+            [(header::CONTENT_TYPE, "text/vtt")],
+            "WEBVTT\n\n00:00:01.000 --> 00:00:05.000\nSubtitle fixture\n",
+        ).into_response(),
         _ => StatusCode::NOT_FOUND.into_response(),
     }
 }
@@ -263,4 +287,77 @@ async fn activates_the_exact_episode_and_scopes_its_hls_resources() {
             .paths
             .contains(&"/Items/jf-episode/PlaybackInfo".to_owned())
     );
+}
+
+#[tokio::test]
+async fn track_selection_targets_a_media_source_and_requests_hls_subtitles() {
+    let fixture = Fixture::new().await;
+    let (status, descriptor) = fixture.post(json!({
+        "target": {"kind":"episode","tmdbId":30,"seriesTmdbId":20,"seasonNumber":2,"episodeNumber":3},
+        "capabilities":capabilities(), "audioStreamIndex":2, "subtitleStreamIndex":4
+    })).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(descriptor["selectedAudioIndex"], 2);
+    assert_eq!(descriptor["selectedSubtitleIndex"], 4);
+    let selection = fixture
+        .calls
+        .lock()
+        .unwrap()
+        .playback_requests
+        .last()
+        .unwrap()
+        .clone();
+    assert_eq!(
+        selection["MediaSourceId"], "episode-source",
+        "Jellyfin ignores track indexes unless MediaSourceId matches"
+    );
+    assert_eq!(selection["AudioStreamIndex"], 2);
+    assert_eq!(selection["SubtitleStreamIndex"], 4);
+    assert_eq!(selection["EnableDirectPlay"], false);
+    assert_eq!(
+        selection["DeviceProfile"]["SubtitleProfiles"][0]["Method"], "Hls",
+        "the web player consumes HLS subtitles, not external DeliveryUrl files"
+    );
+}
+
+#[tokio::test]
+async fn selected_subtitle_playlists_and_cues_are_playable_through_the_session() {
+    let fixture = Fixture::new().await;
+    let (status, descriptor) = fixture.post(json!({
+        "target": {"kind":"episode","tmdbId":30,"seriesTmdbId":20,"seasonNumber":2,"episodeNumber":3},
+        "capabilities":capabilities(), "subtitleStreamIndex":4
+    })).await;
+    assert_eq!(status, StatusCode::OK);
+    let master = fixture
+        .get(descriptor["mediaUrl"].as_str().unwrap(), None)
+        .await;
+    let text =
+        String::from_utf8(to_bytes(master.into_body(), 10000).await.unwrap().to_vec()).unwrap();
+    let subtitle_url = text
+        .lines()
+        .find(|line| line.contains("TYPE=SUBTITLES"))
+        .expect("the selected subtitle must be present in the playable manifest")
+        .split("URI=\"")
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap();
+    let subtitles = fixture.get(subtitle_url, None).await;
+    assert_eq!(subtitles.status(), StatusCode::OK);
+    let text = String::from_utf8(
+        to_bytes(subtitles.into_body(), 10000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    let cue_url = text.lines().find(|line| !line.starts_with('#')).unwrap();
+    let cues = fixture.get(cue_url, None).await;
+    assert_eq!(cues.status(), StatusCode::OK);
+    assert_eq!(cues.headers()[header::CONTENT_TYPE], "text/vtt");
+    let text =
+        String::from_utf8(to_bytes(cues.into_body(), 10000).await.unwrap().to_vec()).unwrap();
+    assert!(text.starts_with("WEBVTT"));
+    assert!(text.contains("Subtitle fixture"));
 }

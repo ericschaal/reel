@@ -74,8 +74,8 @@ Object.defineProperties(dom.window.HTMLMediaElement.prototype, {
     this.dispatchEvent(new dom.window.Event('pause'));
   } },
   // Paused media need not produce another frame callback.
-  requestVideoFrameCallback: { configurable: true, value() { return 1; } },
-  cancelVideoFrameCallback: { configurable: true, value() {} },
+  requestVideoFrameCallback: { configurable: true, value(callback) { state(this).frameCallback = callback; return 1; } },
+  cancelVideoFrameCallback: { configurable: true, value() { state(this).frameCallback = null; } },
   // The browser's load algorithm resets speed and permits autoplay again.
   load: { configurable: true, value() {
     state(this).paused = true;
@@ -97,7 +97,8 @@ afterEach(async () => { await act(() => root.unmount()); });
 async function mount(overrides = {}, onSelectTracks = async (_position, selection) => ({
   ...descriptor, ...overrides, mediaUrl: '/replacement', selectedAudioIndex: selection.audioStreamIndex,
   selectedSubtitleIndex: selection.subtitleStreamIndex,
-})) {
+}), supportsMse = !nativeHls) {
+  Hls.supported = supportsMse;
   await act(async () => root.render(createElement(ReelVideoPlayer, {
     media: { title: 'Test movie' }, playback: { status: 'ready', descriptor: { ...descriptor, ...overrides } },
     onBack() {}, onSelectTracks,
@@ -116,6 +117,12 @@ async function canPlay(video) {
   await emit(video, 'loadeddata');
   await emit(video, 'canplay');
   if (video.autoplay && video.paused) await act(() => video.play());
+  await presentFrame(video);
+}
+async function presentFrame(video) {
+  const callback = state(video).frameCallback;
+  state(video).frameCallback = null;
+  if (callback) await act(() => callback());
 }
 async function changeAudio() {
   await click('Audio and subtitles');
@@ -254,4 +261,33 @@ test('leaving while activation is pending does not resume the detached video', a
   const playCalls = state(video).playCalls;
   await act(async () => rejectActivation(new Error('Aborted')));
   assert.equal(state(video).playCalls, playCalls);
+});
+
+test('subtitle switching shows the spinner without the central play overlay', async () => {
+  let finishActivation;
+  const video = await mount({}, () => new Promise(resolve => { finishActivation = resolve; }));
+  await canPlay(video);
+  await click('Audio and subtitles');
+  await click('subtitles');
+  await click('Frenchfra');
+  assert.ok(container.querySelector('[aria-label="Switching track"]'));
+  assert.ok(!container.querySelector('button.absolute[aria-label="Play"]'), 'The play overlay must not cover the spinner');
+  // Events queued by the old stream must not dismiss the switch indicator.
+  await emit(video, 'seeked');
+  assert.ok(container.querySelector('[aria-label="Switching track"]'));
+  await act(async () => finishActivation({ ...descriptor, selectedSubtitleIndex: 4, mediaUrl: '/replacement' }));
+  await emit(video, 'loadeddata');
+  await emit(video, 'canplay');
+  assert.ok(container.querySelector('[aria-label="Switching track"]'), 'Keep the spinner until the replacement frame is presented');
+  await presentFrame(video);
+  assert.equal(container.querySelector('[aria-label="Switching track"]'), null);
+});
+
+
+test('prefers hls.js when the browser also advertises native HLS', async () => {
+  nativeHls = true;
+  const video = await mount({ selectedSubtitleIndex: 4 }, undefined, true);
+  assert.equal(Hls.instances.length, 1);
+  assert.equal(Hls.instances[0].video, video);
+  assert.equal(video.getAttribute('src'), null);
 });

@@ -85,29 +85,35 @@ impl Playback {
             .start_position_seconds
             .map(seconds_to_ticks)
             .transpose()?;
-        let playback = self
+        let mut playback_request = PlaybackInfoRequest {
+            max_streaming_bitrate: request.capabilities.max_streaming_bitrate,
+            start_time_ticks,
+            device_profile: Some(web_device_profile(&request.capabilities)),
+            enable_direct_play: Some(true),
+            enable_direct_stream: Some(true),
+            enable_transcoding: Some(request.capabilities.hls),
+            allow_video_stream_copy: Some(true),
+            allow_audio_stream_copy: Some(true),
+            ..PlaybackInfoRequest::default()
+        };
+        let mut playback = self
             .jellyfin
-            .playback_info(
-                &item.id,
-                &user_id,
-                &PlaybackInfoRequest {
-                    max_streaming_bitrate: request.capabilities.max_streaming_bitrate,
-                    start_time_ticks,
-                    audio_stream_index: request.audio_stream_index,
-                    subtitle_stream_index: request.subtitle_stream_index,
-                    device_profile: Some(web_device_profile(&request.capabilities)),
-                    enable_direct_play: Some(
-                        request.audio_stream_index.is_none()
-                            && request.subtitle_stream_index.is_none(),
-                    ),
-                    enable_direct_stream: Some(true),
-                    enable_transcoding: Some(request.capabilities.hls),
-                    allow_video_stream_copy: Some(true),
-                    allow_audio_stream_copy: Some(true),
-                    ..PlaybackInfoRequest::default()
-                },
-            )
+            .playback_info(&item.id, &user_id, &playback_request)
             .await?;
+        if request.audio_stream_index.is_some() || request.subtitle_stream_index.is_some() {
+            // Jellyfin only applies track indexes when MediaSourceId matches.
+            // Resolve the preferred source before negotiating its selected tracks.
+            let (source, _, _) = choose_source(&self.jellyfin, &item.id, &playback)?;
+            playback_request.media_source_id =
+                Some(source.id.clone().ok_or(Error::InvalidUpstreamResponse)?);
+            playback_request.audio_stream_index = request.audio_stream_index;
+            playback_request.subtitle_stream_index = request.subtitle_stream_index;
+            playback_request.enable_direct_play = Some(false);
+            playback = self
+                .jellyfin
+                .playback_info(&item.id, &user_id, &playback_request)
+                .await?;
+        }
         let (source, source_url, delivery) = choose_source(&self.jellyfin, &item.id, &playback)?;
         let source_url = without_jellyfin_credentials(source_url);
         let session_id = random_session_id();
@@ -552,7 +558,7 @@ fn web_device_profile(capabilities: &PlayerCapabilities) -> DeviceProfile {
         transcoding_profiles,
         subtitle_profiles: vec![SubtitleProfile {
             format: Some("vtt".into()),
-            method: SubtitleDeliveryMethod::External,
+            method: SubtitleDeliveryMethod::Hls,
             language: None,
             container: None,
         }],
