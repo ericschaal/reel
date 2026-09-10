@@ -38,7 +38,9 @@ information hierarchy can later support TV focus navigation.
 ## Checks
 
 Run `npm run lint` and `npm run build`. Run `npm test` with Node 22.18+
-for navigation URL regression coverage.
+for navigation and player regression coverage. Player tests mount the real React
+component in jsdom and simulate media events and HLS track discovery; real
+browser decoding and Jellyfin streaming still require a playback smoke test.
 
 Catalogue surfaces are URL-driven (`/?surface=movies` or `/?surface=series`).
 Collection pages support automatic pagination and a manual Load more control.

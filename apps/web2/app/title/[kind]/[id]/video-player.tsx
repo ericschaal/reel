@@ -12,6 +12,7 @@ import type { TitleMedia } from "../../../catalogue";
 import type {
   ActivePlayback,
   PlaybackDescriptor,
+  PlaybackTrack,
   PlaybackTrackSelection,
 } from "./playback";
 
@@ -41,7 +42,8 @@ export function ReelVideoPlayer({
   const controlsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hlsRef = useRef<import("hls.js").default | null>(null);
   const resumePositionRef = useRef(playback.resumeSeconds ?? 0);
-  const resumeAfterSwitchRef = useRef(false);
+  const resumeAfterSwitchRef = useRef<boolean | null>(true);
+  const frameCallbackRef = useRef<number | null>(null);
   const [descriptor, setDescriptor] = useState(playback.descriptor);
   const [playerError, setPlayerError] = useState<string | null>(null);
   const [trackSwitchError, setTrackSwitchError] = useState<string | null>(null);
@@ -175,14 +177,21 @@ export function ReelVideoPlayer({
   }, []);
 
   const revealDecodedFrame = useCallback((video: HTMLVideoElement) => {
+    if (video.seeking) return;
     const reveal = () => {
+      frameCallbackRef.current = null;
       hideFrozenFrame();
       setIsSwitchingTracks(false);
     };
-    if ("requestVideoFrameCallback" in video) {
-      video.requestVideoFrameCallback(reveal);
+    if (frameCallbackRef.current !== null) {
+      video.cancelVideoFrameCallback(frameCallbackRef.current);
+    }
+    // loadeddata/seeked already supplies the paused frame. No further frame
+    // callback is guaranteed until playback resumes.
+    if (!video.paused && "requestVideoFrameCallback" in video) {
+      frameCallbackRef.current = video.requestVideoFrameCallback(reveal);
     } else {
-      requestAnimationFrame(reveal);
+      reveal();
     }
   }, [hideFrozenFrame]);
 
@@ -193,10 +202,12 @@ export function ReelVideoPlayer({
       const position = video.currentTime;
       const shouldResume = !video.paused;
       captureCurrentFrame();
+      video.pause();
       setIsSwitchingTracks(true);
       setTrackSwitchError(null);
       try {
         const nextDescriptor = await onSelectTracks(position, selection);
+        if (videoRef.current !== video) return;
         resumePositionRef.current = position;
         resumeAfterSwitchRef.current = shouldResume;
         setDescriptor(nextDescriptor);
@@ -219,8 +230,10 @@ export function ReelVideoPlayer({
         setSelectedSubtitle(nextDescriptor.selectedSubtitleIndex ?? -1);
         setMenu(null);
       } catch (reason) {
+        if (videoRef.current !== video) return;
         hideFrozenFrame();
         setIsSwitchingTracks(false);
+        if (shouldResume) void video.play().catch(() => setControlsVisible(true));
         setTrackSwitchError(
           reason instanceof Error
             ? reason.message
@@ -289,11 +302,12 @@ export function ReelVideoPlayer({
     };
     const syncNativeTextTracks = () => {
       if (descriptorSubtitleTracks.length) {
+        const selected = descriptorSubtitleTracks.find(
+          (track) => track.index === descriptor.selectedSubtitleIndex,
+        );
+        const selectedIndex = findSubtitleTrackIndex(Array.from(video.textTracks), selected);
         Array.from(video.textTracks).forEach((track, index) => {
-          track.mode =
-            descriptor.selectedSubtitleIndex !== null && index === 0
-              ? "showing"
-              : "disabled";
+          track.mode = index === selectedIndex ? "showing" : "disabled";
         });
         return;
       }
@@ -310,12 +324,13 @@ export function ReelVideoPlayer({
     };
 
     video.addEventListener("loadedmetadata", seekToResumePosition, { once: true });
-    video.textTracks.addEventListener("addtrack", syncNativeTextTracks);
 
     if (
       descriptor.delivery === "direct" ||
       video.canPlayType("application/vnd.apple.mpegurl")
     ) {
+      video.textTracks.addEventListener("addtrack", syncNativeTextTracks);
+      video.addEventListener("loadedmetadata", syncNativeTextTracks);
       video.src = descriptor.mediaUrl;
       syncNativeTextTracks();
     } else {
@@ -348,19 +363,27 @@ export function ReelVideoPlayer({
                 language: track.lang || undefined,
               })));
               setSelectedSubtitle(hls.subtitleTrack);
-            } else if (descriptor.selectedSubtitleIndex === -1) {
-              hls.subtitleDisplay = false;
-              hls.subtitleTrack = -1;
-            } else if (
-              descriptor.selectedSubtitleIndex !== null &&
-              hls.subtitleTracks.length
-            ) {
-              hls.subtitleDisplay = true;
-              hls.subtitleTrack = 0;
+            } else {
+              const selected = descriptorSubtitleTracks.find(
+                (track) => track.index === descriptor.selectedSubtitleIndex,
+              );
+              const selectedIndex = findSubtitleTrackIndex(
+                hls.subtitleTracks.map((track) => ({ label: track.name, language: track.lang })),
+                selected,
+              );
+              hls.subtitleDisplay = selectedIndex !== -1;
+              hls.subtitleTrack = selectedIndex;
             }
           };
 
           hls.on(Hls.Events.MANIFEST_PARSED, syncHlsTracks);
+          hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, () => {
+            // hls.js applies its default after this event; restore our selection
+            // after that step, including when a new rendition group appears.
+            queueMicrotask(() => {
+              if (!cancelled) syncHlsTracks();
+            });
+          });
           hls.on(Hls.Events.AUDIO_TRACK_SWITCHED, (_event, data) => {
             if (!descriptorAudioTracks.length) setSelectedAudio(data.id);
           });
@@ -389,7 +412,12 @@ export function ReelVideoPlayer({
     return () => {
       cancelled = true;
       video.removeEventListener("loadedmetadata", seekToResumePosition);
+      video.removeEventListener("loadedmetadata", syncNativeTextTracks);
       video.textTracks.removeEventListener("addtrack", syncNativeTextTracks);
+      if (frameCallbackRef.current !== null) {
+        video.cancelVideoFrameCallback(frameCallbackRef.current);
+        frameCallbackRef.current = null;
+      }
       destroyHls?.();
       hlsRef.current = null;
       video.removeAttribute("src");
@@ -400,7 +428,7 @@ export function ReelVideoPlayer({
     descriptor.mediaUrl,
     descriptor.selectedSubtitleIndex,
     descriptorAudioTracks.length,
-    descriptorSubtitleTracks.length,
+    descriptorSubtitleTracks,
   ]);
 
   useEffect(() => {
@@ -500,6 +528,7 @@ export function ReelVideoPlayer({
   function choosePlaybackRate(rate: number) {
     const video = videoRef.current;
     if (!video) return;
+    video.defaultPlaybackRate = rate;
     video.playbackRate = rate;
     setPlaybackRate(rate);
     setMenu(null);
@@ -537,7 +566,6 @@ export function ReelVideoPlayer({
       <video
         ref={videoRef}
         className="h-full w-full object-contain"
-        autoPlay
         playsInline
         onClick={togglePlay}
         onDoubleClick={toggleFullscreen}
@@ -553,12 +581,23 @@ export function ReelVideoPlayer({
         onWaiting={() => setIsBuffering(true)}
         onPlaying={() => setIsBuffering(false)}
         onLoadedData={(event) => revealDecodedFrame(event.currentTarget)}
-        onCanPlay={() => {
+        onSeeked={(event) => revealDecodedFrame(event.currentTarget)}
+        onCanPlay={(event) => {
           setIsBuffering(false);
-          if (resumeAfterSwitchRef.current) {
-            resumeAfterSwitchRef.current = false;
-            void videoRef.current?.play();
+          const shouldResume = resumeAfterSwitchRef.current;
+          resumeAfterSwitchRef.current = null;
+          if (shouldResume) {
+            void event.currentTarget.play().catch(() => setControlsVisible(true));
+          } else if (shouldResume === false) {
+            event.currentTarget.pause();
           }
+        }}
+        onRateChange={(event) => {
+          const video = event.currentTarget;
+          if (video.defaultPlaybackRate !== video.playbackRate) {
+            video.defaultPlaybackRate = video.playbackRate;
+          }
+          setPlaybackRate(video.playbackRate);
         }}
         onDurationChange={(event) => setDuration(event.currentTarget.duration || 0)}
         onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
@@ -828,6 +867,27 @@ function Choice({ selected, label, detail, onClick }: { selected: boolean; label
 
 function EmptyTrackState({ label }: { label: string }) {
   return <p className="px-3 py-5 text-sm leading-6 text-white/45">{label}</p>;
+}
+
+function findSubtitleTrackIndex(
+  tracks: { label: string; language?: string | null }[],
+  selected: PlaybackTrack | undefined,
+) {
+  if (!selected || selected.index < 0) return -1;
+  const normalize = (value: string | null | undefined) => value?.trim().toLowerCase();
+  const label = normalize(selected.label);
+  const language = normalize(selected.language);
+  const labeled = tracks.flatMap((track, index) =>
+    normalize(track.label) === label ? [index] : [],
+  );
+  if (labeled.length === 1) return labeled[0];
+  const candidates = labeled.length ? labeled : tracks.map((_, index) => index);
+  const matching = language
+    ? candidates.filter((index) => normalize(tracks[index].language) === language)
+    : [];
+  // Browser track indexes differ from Jellyfin stream indexes. Match the
+  // manifest's display title/language, and never guess between ambiguous tracks.
+  return matching.length === 1 ? matching[0] : -1;
 }
 
 function formatPlayerTime(seconds: number) {
