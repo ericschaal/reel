@@ -12,13 +12,9 @@ import {
   DownloadIcon,
   DownloadedStatus,
   FullScreenShell,
-  isLastSourceAvailable,
   PlaybackControl,
   PlaybackHint,
-  playbackSources,
-  preferredPlaybackSource,
   ProgressBar,
-  type Source,
 } from "./playback";
 
 export function EpisodeDetailView({
@@ -29,13 +25,11 @@ export function EpisodeDetailView({
   seasonNumber,
   seasonLoading,
   seasonError,
-  selectedSource,
   progress,
   onBack,
   onSelectSeason,
   onOpenEpisode,
   onPlayLocal,
-  onStream,
   onDownload,
 }: {
   media: TitleMedia;
@@ -45,30 +39,14 @@ export function EpisodeDetailView({
   seasonNumber: number | null;
   seasonLoading: boolean;
   seasonError: string | null;
-  selectedSource: Source;
   progress: PlaybackProgress | null;
   onBack: () => void;
   onSelectSeason: (seasonNumber: number) => void;
   onOpenEpisode: (episode: Episode) => void;
   onPlayLocal: (resumeSeconds?: number) => void;
-  onStream: (source: Source, resumeSeconds?: number) => void;
   onDownload: () => void;
 }) {
   const localCopy = episode.availability === "local";
-  const lastSourceAvailable = isLastSourceAvailable(progress, localCopy);
-  const resumeSourceLabel = progress
-    ? lastSourceAvailable
-      ? progress.lastSourceLabel
-      : localCopy
-        ? "Jellyfin"
-        : selectedSource.provider
-    : null;
-  const sources = playbackSources(localCopy);
-  const preferredSource = preferredPlaybackSource(
-    progress,
-    localCopy,
-    selectedSource,
-  );
 
   return (
     <FullScreenShell onBack={onBack} backLabel="Back to episodes">
@@ -100,15 +78,9 @@ export function EpisodeDetailView({
             </p>
             <div className="mt-7 flex flex-wrap items-stretch gap-3">
               <PlaybackControl
-                sources={sources}
-                selected={preferredSource}
                 progress={progress}
-                disabled={false}
-                onPlay={(source, resumeSeconds) =>
-                  source.id === "local"
-                    ? onPlayLocal(resumeSeconds)
-                    : onStream(source, resumeSeconds)
-                }
+                disabled={!localCopy}
+                onPlay={onPlayLocal}
               />
               {episode.availability === "local" ? (
                 <DownloadedStatus />
@@ -122,11 +94,7 @@ export function EpisodeDetailView({
                 </button>
               )}
             </div>
-            <PlaybackHint
-              progress={progress}
-              lastSourceAvailable={lastSourceAvailable}
-              resumeSourceLabel={resumeSourceLabel}
-            />
+            <PlaybackHint progress={progress} />
           </div>
         </section>
         <section

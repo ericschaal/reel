@@ -231,6 +231,14 @@ impl Jellyfin {
     pub fn resolve_url(&self, path_or_url: &str) -> Result<Url> {
         self.http.resolve_url(path_or_url)
     }
+
+    pub fn has_same_origin(&self, url: &Url) -> bool {
+        self.http.has_same_origin(url)
+    }
+
+    pub async fn media_response(&self, url: Url, range: Option<&str>) -> Result<reqwest::Response> {
+        self.http.get_response(url, range).await
+    }
 }
 
 fn common_item_parameters(item_types: &[ItemType]) -> Vec<(&'static str, String)> {

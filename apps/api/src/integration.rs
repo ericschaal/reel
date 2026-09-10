@@ -2,7 +2,7 @@ use std::fmt;
 
 use reqwest::{
     Client as HttpClient, Response, StatusCode, Url,
-    header::{HeaderMap, InvalidHeaderValue},
+    header::{HeaderMap, InvalidHeaderValue, RANGE},
 };
 use serde::{Serialize, de::DeserializeOwned};
 use thiserror::Error as ThisError;
@@ -185,6 +185,23 @@ impl JsonClient {
                 .map_err(|source| Error::invalid_base_url(self.integration, source)),
             Err(source) => Err(Error::invalid_base_url(self.integration, source)),
         }
+    }
+
+    pub(crate) fn has_same_origin(&self, url: &Url) -> bool {
+        self.base_url.scheme() == url.scheme()
+            && self.base_url.host_str() == url.host_str()
+            && self.base_url.port_or_known_default() == url.port_or_known_default()
+    }
+
+    pub(crate) async fn get_response(&self, url: Url, range: Option<&str>) -> Result<Response> {
+        let mut request = self.http.get(url);
+        if let Some(range) = range {
+            request = request.header(RANGE, range);
+        }
+        request
+            .send()
+            .await
+            .map_err(|source| self.transport_error(source))
     }
 
     async fn decode_json<T: DeserializeOwned>(&self, response: Response) -> Result<T> {

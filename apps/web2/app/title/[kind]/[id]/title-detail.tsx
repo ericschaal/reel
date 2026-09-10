@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type {
   Episode,
   TitleMedia,
@@ -21,17 +21,13 @@ import { DownloadView, type DownloadScope } from "./download-view";
 import { EpisodeDetailView } from "./episode-detail-view";
 import { NextUp, SeriesHierarchy } from "./episodes";
 import {
+  activateJellyfinPlayback,
   type ActivePlayback,
   DownloadIcon,
   DownloadedStatus,
-  exampleSources,
-  isLastSourceAvailable,
   PlaybackControl,
   PlaybackHint,
-  playbackSources,
   PlayerView,
-  preferredPlaybackSource,
-  type Source,
 } from "./playback";
 
 export function TitleDetail({
@@ -77,63 +73,62 @@ export function TitleDetail({
     media.kind === "series"
       ? nextEpisode?.availability === "local"
       : media.availability === "local";
-  const [selectedSource, setSelectedSource] = useState("stremio-1");
   const [activePlayback, setActivePlayback] =
     useState<ActivePlayback | null>(null);
+  const activation = useRef<AbortController | null>(null);
   const [downloadScope, setDownloadScope] = useState<DownloadScope | null>(
     null,
   );
-  const selected =
-    exampleSources.find((source) => source.id === selectedSource) ??
-    exampleSources[0];
   const progress = progressForSelection(media.progress, nextEpisode);
-  const sources = playbackSources(Boolean(localCopy));
-  const preferredSource = preferredPlaybackSource(
-    progress,
-    Boolean(localCopy),
-    selected,
-  );
-  const lastSourceAvailable = isLastSourceAvailable(
-    progress,
-    Boolean(localCopy),
-  );
-  const resumeSourceLabel = progress
-    ? lastSourceAvailable
-      ? progress.lastSourceLabel
-      : localCopy
-        ? "Jellyfin"
-        : selected.provider
-    : null;
 
   function selectSeason(nextSeasonNumber: number) {
     if (!series || nextSeasonNumber === seasonNumber) return;
     setSeasonNumber(nextSeasonNumber);
-    setSelectedSource("stremio-1");
   }
 
   function playLocal(resumeSeconds?: number, episode = nextEpisode ?? undefined) {
+    activation.current?.abort();
+    const controller = new AbortController();
+    activation.current = controller;
     setActivePlayback({
-      sourceId: "local",
-      sourceLabel: "Jellyfin",
-      sourceDetail: "Local library",
+      status: "loading",
       resumeSeconds,
       episode,
     });
+    void activateJellyfinPlayback(
+      media,
+      episode,
+      resumeSeconds,
+      controller.signal,
+    )
+      .then((descriptor) => {
+        if (activation.current === controller) {
+          setActivePlayback({
+            status: "ready",
+            descriptor,
+            resumeSeconds,
+            episode,
+          });
+        }
+      })
+      .catch((reason: unknown) => {
+        if (controller.signal.aborted || activation.current !== controller) return;
+        setActivePlayback({
+          status: "error",
+          message:
+            reason instanceof Error
+              ? reason.message
+              : "Jellyfin playback could not be started.",
+          resumeSeconds,
+          episode,
+        });
+      });
   }
 
-  function stream(
-    source: Source = selected,
-    resumeSeconds?: number,
-    episode = nextEpisode ?? undefined,
-  ) {
-    setSelectedSource(source.id);
-    setActivePlayback({
-      sourceId: source.id,
-      sourceLabel: source.provider,
-      sourceDetail: source.quality,
-      resumeSeconds,
-      episode,
-    });
+  function closePlayback() {
+    activation.current?.abort();
+    activation.current = null;
+    setActivePlayback(null);
   }
 
   function openDownload() {
@@ -162,7 +157,10 @@ export function TitleDetail({
       <PlayerView
         media={media}
         playback={activePlayback}
-        onBack={() => setActivePlayback(null)}
+        onBack={closePlayback}
+        onRetry={() =>
+          playLocal(activePlayback.resumeSeconds, activePlayback.episode)
+        }
       />
     );
   }
@@ -190,7 +188,6 @@ export function TitleDetail({
         seasonNumber={seasonNumber}
         seasonLoading={seasonLoading}
         seasonError={seasonError}
-        selectedSource={selected}
         progress={progressForSelection(media.progress, episodeDialog)}
         onBack={closeEpisode}
         onSelectSeason={selectSeason}
@@ -198,10 +195,6 @@ export function TitleDetail({
         onPlayLocal={(resumeSeconds) =>
           playLocal(resumeSeconds, episodeDialog)
         }
-        onStream={(source, resumeSeconds) => {
-          if (source.id === "local") playLocal(resumeSeconds, episodeDialog);
-          else stream(source, resumeSeconds, episodeDialog);
-        }}
         onDownload={() =>
           setDownloadScope({ kind: "episode", episode: episodeDialog })
         }
@@ -274,15 +267,9 @@ export function TitleDetail({
             ) : null}
             <div className="mt-5 flex flex-wrap items-stretch gap-3">
               <PlaybackControl
-                sources={sources}
-                selected={preferredSource}
                 progress={progress}
-                disabled={media.kind === "series" && !nextEpisode}
-                onPlay={(source, resumeSeconds) =>
-                  source.id === "local"
-                    ? playLocal(resumeSeconds)
-                    : stream(source, resumeSeconds)
-                }
+                disabled={!localCopy}
+                onPlay={(resumeSeconds) => playLocal(resumeSeconds)}
               />
               {media.kind === "movie" && media.availability === "local" ? (
                 <DownloadedStatus />
@@ -296,11 +283,7 @@ export function TitleDetail({
                 </button>
               )}
             </div>
-            <PlaybackHint
-              progress={progress}
-              lastSourceAvailable={lastSourceAvailable}
-              resumeSourceLabel={resumeSourceLabel}
-            />
+            <PlaybackHint progress={progress} />
           </div>
         </section>
         {media.kind === "series" ? (

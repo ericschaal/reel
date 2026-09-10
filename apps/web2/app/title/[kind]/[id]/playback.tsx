@@ -1,97 +1,228 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Episode, TitleMedia, PlaybackProgress } from "../../../catalogue";
 import { Eyebrow, NavigationHeader, primaryButtonClass } from "../../../ui";
 
-export type Source = {
-  id: string;
-  provider: string;
-  quality: string;
-  detail: string;
-  available: boolean;
+export type PlaybackDescriptor = {
+  sessionId: string;
+  source: "jellyfin";
+  delivery: "direct" | "hls";
+  mediaUrl: string;
+  container: string | null;
+  durationSeconds: number | null;
 };
 
-export type ActivePlayback = {
-  sourceId: string;
-  sourceLabel: string;
-  sourceDetail: string;
-  resumeSeconds?: number;
-  episode?: Episode;
-};
+type PlaybackSelection = { resumeSeconds?: number; episode?: Episode };
 
-export const exampleSources: Source[] = [
-  {
-    id: "stremio-1",
-    provider: "Stremio · 1",
-    quality: "4K · HDR · 5.1",
-    detail: "12.4 GB",
-    available: true,
-  },
-  {
-    id: "stremio-2",
-    provider: "Stremio · 2",
-    quality: "1080p · H.264 · 5.1",
-    detail: "3.8 GB",
-    available: true,
-  },
-  {
-    id: "stremio-3",
-    provider: "Stremio · 3",
-    quality: "720p · H.264 · Stereo",
-    detail: "1.2 GB",
-    available: true,
-  },
-];
+export type ActivePlayback = PlaybackSelection &
+  (
+    | { status: "loading" }
+    | { status: "ready"; descriptor: PlaybackDescriptor }
+    | { status: "error"; message: string }
+  );
 
-const jellyfinSource: Source = {
-  id: "local",
-  provider: "Jellyfin",
-  quality: "Local library",
-  detail: "In library",
-  available: true,
-};
+export async function activateJellyfinPlayback(
+  media: TitleMedia,
+  episode?: Episode,
+  resumeSeconds?: number,
+  signal?: AbortSignal,
+) {
+  const video = document.createElement("video");
+  const supportsMp4 = Boolean(
+    video.canPlayType('video/mp4; codecs="avc1.42E01E, mp4a.40.2"'),
+  );
+  const supportsWebm = Boolean(
+    video.canPlayType('video/webm; codecs="vp9, opus"'),
+  );
+  const target = episode
+    ? {
+        kind: "episode" as const,
+        tmdbId: episode.tmdbId,
+        seriesTmdbId: media.tmdbId,
+        seasonNumber: episode.seasonNumber,
+        episodeNumber: episode.episodeNumber,
+      }
+    : { kind: "movie" as const, tmdbId: media.tmdbId };
+  const response = await fetch("/v1/playback/activate", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({
+      target,
+      startPositionSeconds: resumeSeconds,
+      capabilities: {
+        containers: [supportsMp4 ? "mp4" : null, supportsWebm ? "webm" : null].filter(
+          (value): value is string => value != null,
+        ),
+        videoCodecs: [supportsMp4 ? "h264" : null, supportsWebm ? "vp9" : null].filter(
+          (value): value is string => value != null,
+        ),
+        audioCodecs: [supportsMp4 ? "aac" : null, supportsWebm ? "opus" : null].filter(
+          (value): value is string => value != null,
+        ),
+        hls:
+          Boolean(video.canPlayType("application/vnd.apple.mpegurl")) ||
+          "MediaSource" in window,
+        maxStreamingBitrate: 40_000_000,
+      },
+    }),
+    signal,
+  });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as
+      | { error?: { message?: string } }
+      | null;
+    throw new Error(
+      body?.error?.message ?? `Playback activation failed (${response.status})`,
+    );
+  }
+  return response.json() as Promise<PlaybackDescriptor>;
+}
 
 export function PlayerView({
   media,
   playback,
   onBack,
+  onRetry,
 }: {
   media: TitleMedia;
   playback: ActivePlayback;
   onBack: () => void;
+  onRetry: () => void;
 }) {
   return (
     <FullScreenShell onBack={onBack} backLabel="Back">
       <main className="grid min-h-[calc(100dvh-5rem)] place-items-center bg-black px-5 py-10">
-        <div className="text-center">
-          <span className="mx-auto grid size-20 place-items-center rounded-full bg-accent text-background shadow-[0_0_0_14px_#f4bc521c]">
-            <PlayIcon />
-          </span>
-          <div className="mt-8">
-            <Eyebrow>Now playing</Eyebrow>
+        {playback.status === "ready" ? (
+          <JellyfinVideo playback={playback} />
+        ) : (
+          <div className="max-w-xl text-center" role="status">
+            <div className="mt-8">
+              <Eyebrow>
+                {playback.status === "loading"
+                  ? "Opening Jellyfin"
+                  : "Playback unavailable"}
+              </Eyebrow>
+            </div>
+            <h1 className="mt-[-0.5rem] text-3xl font-semibold tracking-tight sm:text-5xl">
+              {playback.episode ? playback.episode.title : media.title}
+            </h1>
+            {playback.episode ? (
+              <p className="mt-3 text-sm text-muted">
+                {media.title} · S{playback.episode.seasonNumber} E
+                {playback.episode.episodeNumber}
+              </p>
+            ) : null}
+            {playback.status === "loading" ? (
+              <p className="mt-6 text-sm text-muted">
+                Negotiating the best compatible local stream…
+              </p>
+            ) : (
+              <>
+                <p className="mt-6 text-sm text-amber-200">{playback.message}</p>
+                <button
+                  type="button"
+                  className={`${primaryButtonClass} mt-7`}
+                  onClick={onRetry}
+                >
+                  Try again
+                </button>
+              </>
+            )}
           </div>
-          <h1 className="mt-[-0.5rem] text-3xl font-semibold tracking-tight sm:text-5xl">
-            {playback.episode ? playback.episode.title : media.title}
-          </h1>
-          {playback.episode ? (
-            <p className="mt-3 text-sm text-muted">
-              {media.title} · S{playback.episode.seasonNumber} E
-              {playback.episode.episodeNumber}
-            </p>
-          ) : null}
-          <p className="mt-6 font-semibold">
-            {playback.resumeSeconds
-              ? `Resuming near ${formatTime(playback.resumeSeconds)}`
-              : "Starting from the beginning"}
-          </p>
-          <p className="mt-2 text-sm text-muted">
-            {playback.sourceLabel} · {playback.sourceDetail}
-          </p>
-          <p className="mt-8 text-xs text-muted">
-            Playback preview only. The player endpoint is not connected yet.
-          </p>
-        </div>
+        )}
       </main>
     </FullScreenShell>
+  );
+}
+
+function JellyfinVideo({
+  playback,
+}: {
+  playback: Extract<ActivePlayback, { status: "ready" }>;
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [playerError, setPlayerError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    let cancelled = false;
+    let destroyHls: (() => void) | undefined;
+    const seekToResumePosition = () => {
+      if (
+        playback.descriptor.delivery === "direct" &&
+        playback.resumeSeconds &&
+        Number.isFinite(video.duration)
+      ) {
+        video.currentTime = Math.min(
+          playback.resumeSeconds,
+          Math.max(0, video.duration - 1),
+        );
+      }
+    };
+    video.addEventListener("loadedmetadata", seekToResumePosition, { once: true });
+
+    if (
+      playback.descriptor.delivery === "direct" ||
+      video.canPlayType("application/vnd.apple.mpegurl")
+    ) {
+      video.src = playback.descriptor.mediaUrl;
+    } else {
+      void import("hls.js")
+        .then(({ default: Hls }) => {
+          if (cancelled) return;
+          if (!Hls.isSupported()) {
+            throw new Error("This browser cannot play HLS video.");
+          }
+          const hls = new Hls();
+          destroyHls = () => hls.destroy();
+          hls.on(Hls.Events.ERROR, (_event, data) => {
+            if (data.fatal) {
+              setPlayerError("The Jellyfin stream stopped unexpectedly.");
+            }
+          });
+          hls.loadSource(playback.descriptor.mediaUrl);
+          hls.attachMedia(video);
+        })
+        .catch((reason: unknown) => {
+          if (!cancelled) {
+            setPlayerError(
+              reason instanceof Error
+                ? reason.message
+                : "The video player could not start.",
+            );
+          }
+        });
+    }
+
+    return () => {
+      cancelled = true;
+      video.removeEventListener("loadedmetadata", seekToResumePosition);
+      destroyHls?.();
+      video.removeAttribute("src");
+      video.load();
+    };
+  }, [
+    playback.descriptor.delivery,
+    playback.descriptor.mediaUrl,
+    playback.resumeSeconds,
+  ]);
+
+  return (
+    <div className="w-full max-w-6xl">
+      <video
+        ref={videoRef}
+        className="aspect-video w-full bg-black shadow-2xl"
+        controls
+        autoPlay
+        playsInline
+        onError={() =>
+          setPlayerError("The browser could not play this Jellyfin stream.")
+        }
+      />
+      {playerError ? (
+        <p className="mt-4 text-center text-sm text-amber-200">{playerError}</p>
+      ) : null}
+    </div>
   );
 }
 
@@ -121,16 +252,10 @@ export function ProgressBar({
 }) {
   const percent = Math.min(
     100,
-    Math.max(
-      0,
-      (progress.positionSeconds / progress.durationSeconds) * 100,
-    ),
+    Math.max(0, (progress.positionSeconds / progress.durationSeconds) * 100),
   );
   return (
-    <span
-      className={`block h-1 bg-white/25 ${className}`}
-      aria-hidden="true"
-    >
+    <span className={`block h-1 bg-white/25 ${className}`} aria-hidden="true">
       <span
         className="block h-full bg-accent"
         style={{ width: `${percent}%` }}
@@ -140,143 +265,42 @@ export function ProgressBar({
 }
 
 export function PlaybackControl({
-  sources,
-  selected,
   progress,
   disabled,
   onPlay,
 }: {
-  sources: Source[];
-  selected: Source;
   progress: PlaybackProgress | null;
   disabled: boolean;
-  onPlay: (source: Source, resumeSeconds?: number) => void;
+  onPlay: (resumeSeconds?: number) => void;
 }) {
-  const resumeSeconds = progress?.positionSeconds;
   return (
-    <div className="relative flex">
-      <button
-        type="button"
-        className={`${primaryButtonClass} rounded-r-none border-r-0 pr-4`}
-        disabled={disabled}
-        onClick={() => onPlay(selected, resumeSeconds)}
-      >
-        <PlayIcon /> {progress ? `Resume · ${formatRemaining(progress)}` : "Play"}
-      </button>
-      <details className="group relative">
-        <summary
-          aria-label="Choose playback source"
-          className={`flex min-h-11 list-none items-center rounded-r-full border border-accent bg-accent px-3 text-background transition-colors marker:hidden hover:bg-amber-300 [&::-webkit-details-marker]:hidden ${disabled ? "pointer-events-none opacity-50" : ""}`}
-        >
-          <ChevronIcon />
-        </summary>
-        <div className="absolute top-[calc(100%+0.65rem)] left-0 z-30 w-[min(22rem,calc(100vw-2.5rem))] overflow-hidden rounded-2xl border border-white/15 bg-[#11151a]/98 p-2 shadow-[0_24px_70px_#000000aa] backdrop-blur-2xl">
-          <p className="px-3 pt-2 pb-3 text-xs text-muted">
-            {resumeSeconds
-              ? `Resume near ${formatTime(resumeSeconds)} with`
-              : "Play with"}
-          </p>
-          {sources.map((source, index) => (
-            <button
-              key={source.id}
-              type="button"
-              aria-label={
-                resumeSeconds
-                  ? `Resume with ${source.provider} near ${formatTime(resumeSeconds)}`
-                  : `Play with ${source.provider}`
-              }
-              disabled={!source.available}
-              className={`flex min-h-16 w-full items-center gap-3 rounded-xl px-3 text-left hover:bg-white/8 disabled:opacity-40 ${selected.id === source.id ? "bg-white/6" : ""}`}
-              onClick={(event) => {
-                onPlay(source, resumeSeconds);
-                event.currentTarget.closest("details")?.removeAttribute("open");
-              }}
-            >
-              <span className="grid size-7 shrink-0 place-items-center rounded-full border border-line font-mono text-[10px] text-accent">
-                {source.id === "local"
-                  ? "L"
-                  : (source.provider.match(/\d+$/)?.[0] ?? index + 1)}
-              </span>
-              <span className="grid min-w-0 flex-1 gap-0.5">
-                <strong className="text-sm">{source.provider}</strong>
-                <span className="truncate text-xs text-muted">
-                  {source.quality}
-                </span>
-              </span>
-              <span className="text-xs text-muted">{source.detail}</span>
-            </button>
-          ))}
-        </div>
-      </details>
-    </div>
+    <button
+      type="button"
+      className={primaryButtonClass}
+      disabled={disabled}
+      onClick={() => onPlay(progress?.positionSeconds)}
+    >
+      <PlayIcon /> {progress ? `Resume · ${formatRemaining(progress)}` : "Play"}
+    </button>
   );
 }
 
 export function PlaybackHint({
   progress,
-  lastSourceAvailable,
-  resumeSourceLabel,
 }: {
   progress: PlaybackProgress | null;
-  lastSourceAvailable: boolean;
-  resumeSourceLabel: string | null;
 }) {
-  if (progress && lastSourceAvailable) {
-    return (
-      <p className="mt-4 text-xs leading-5 text-muted">
-        Resume uses {progress.lastSourceLabel}. Choose another stream source to
-        resume at approximately the same point.
-      </p>
-    );
-  }
-  if (progress) {
-    return (
-      <p className="mt-4 text-xs leading-5 text-amber-200/80">
-        {progress.lastSourceLabel} is no longer available. Resume will use{" "}
-        {resumeSourceLabel} at approximately the same point.
-      </p>
-    );
-  }
-  return null;
-}
-
-export function playbackSources(hasLocalCopy: boolean) {
-  return hasLocalCopy ? [jellyfinSource, ...exampleSources] : exampleSources;
-}
-
-export function preferredPlaybackSource(
-  progress: PlaybackProgress | null,
-  hasLocalCopy: boolean,
-  fallback: Source,
-) {
-  const sources = playbackSources(hasLocalCopy);
-  if (progress) {
-    const lastSource = sources.find(
-      (source) => source.id === progress.lastSourceId && source.available,
-    );
-    if (lastSource) return lastSource;
-  }
-  return hasLocalCopy ? jellyfinSource : fallback;
-}
-
-export function isLastSourceAvailable(
-  progress: PlaybackProgress | null,
-  hasLocalCopy: boolean,
-) {
-  if (!progress) return false;
-  return progress.lastSourceKind === "local"
-    ? hasLocalCopy
-    : exampleSources.some(
-        (source) => source.id === progress.lastSourceId && source.available,
-      );
+  return progress ? (
+    <p className="mt-4 text-xs leading-5 text-muted">
+      Resume uses the local Jellyfin copy.
+    </p>
+  ) : null;
 }
 
 export function formatRemaining(progress: PlaybackProgress) {
   const minutes = Math.max(
     1,
-    Math.ceil(
-      (progress.durationSeconds - progress.positionSeconds) / 60,
-    ),
+    Math.ceil((progress.durationSeconds - progress.positionSeconds) / 60),
   );
   return `${minutes} min left`;
 }
@@ -332,19 +356,6 @@ function PlayIcon() {
       viewBox="0 0 16 16"
     >
       <path d="M3.5 2.2a1 1 0 0 1 1.5-.86l9 5.8a1 1 0 0 1 0 1.72l-9 5.8a1 1 0 0 1-1.5-.86V2.2Z" />
-    </svg>
-  );
-}
-
-function ChevronIcon() {
-  return (
-    <svg
-      aria-hidden="true"
-      className="size-3.5 fill-none stroke-current transition-transform group-open:rotate-180"
-      viewBox="0 0 16 16"
-      strokeWidth="2"
-    >
-      <path d="m4 6 4 4 4-4" />
     </svg>
   );
 }

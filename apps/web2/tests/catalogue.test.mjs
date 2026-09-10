@@ -118,6 +118,34 @@ test("download actions become downloaded status for local media", async () => {
   assert.match(episodeDetail, /<DownloadedStatus \/>/);
 });
 
+test("local movies and exact episodes activate Jellyfin playback", async () => {
+  const [playback, titleDetail, episodeDetail, nextConfig] = await Promise.all([
+    readFile(
+      new URL("../app/title/[kind]/[id]/playback.tsx", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../app/title/[kind]/[id]/title-detail.tsx", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../app/title/[kind]/[id]/episode-detail-view.tsx", import.meta.url),
+      "utf8",
+    ),
+    readFile(new URL("../next.config.ts", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(playback, /fetch\("\/v1\/playback\/activate"/);
+  assert.match(playback, /seriesTmdbId: media\.tmdbId/);
+  assert.match(playback, /episodeNumber: episode\.episodeNumber/);
+  assert.match(playback, /void import\("hls\.js"\)/);
+  assert.match(playback, /<video/);
+  assert.doesNotMatch(playback, /exampleSources|Stremio/);
+  assert.match(titleDetail, /disabled=\{!localCopy\}/);
+  assert.match(episodeDetail, /disabled=\{!localCopy\}/);
+  assert.match(nextConfig, /source: "\/v1\/playback\/:path\*"/);
+});
+
 test("all secondary pages use the shared navigation header", async () => {
   const [ui, collection, title] = await Promise.all([
     readFile(new URL("../app/ui.tsx", import.meta.url), "utf8"),
