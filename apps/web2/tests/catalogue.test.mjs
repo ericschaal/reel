@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   collectionHref,
@@ -9,6 +10,39 @@ import {
   reelProxyPathAllowed,
   titleHref,
 } from "../app/catalogue.ts";
+
+test("category artwork keeps an explicit non-zero sizing chain", async () => {
+  const source = await readFile(
+    new URL("../app/media-card.tsx", import.meta.url),
+    "utf8",
+  );
+  const categoryBranch = source.slice(
+    source.indexOf('if (item.kind === "category")'),
+    source.indexOf('const backdrop = layout === "backdrop"'),
+  );
+
+  assert.match(categoryBranch, /relative block aspect-\[4\/3\] w-full/);
+  assert.doesNotMatch(categoryBranch, /self-start/);
+  assert.match(
+    categoryBranch,
+    /absolute inset-x-\[12%\] top-\[9%\] bottom-\[27%\] opacity-35/,
+  );
+});
+
+test("media metadata grid packs its rows instead of stretching", async () => {
+  const source = await readFile(
+    new URL("../app/media-card.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.match(
+    source,
+    /<span className="grid min-w-0 content-start gap-2">/,
+  );
+  assert.doesNotMatch(
+    source,
+    /backdrop \? "line-clamp-1" : "line-clamp-2 min-h-10"/,
+  );
+});
 
 test("collection links preserve opaque cursors and language", () => {
   const href =

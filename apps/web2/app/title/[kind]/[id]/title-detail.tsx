@@ -8,7 +8,7 @@ import type {
   SeriesDetails,
 } from "../../../catalogue";
 import { Dialog } from "../../../dialog";
-import { Artwork } from "../../../media-card";
+import { Artwork, RatingBadge } from "../../../media-card";
 import {
   buttonClass,
   primaryButtonClass,
@@ -154,15 +154,29 @@ export function TitleDetail({
             <h1 className="text-4xl leading-[1.08] font-semibold tracking-[-0.045em] text-balance [overflow-wrap:anywhere] sm:text-5xl lg:text-6xl">
               {media.title}
             </h1>
-            <p className="mt-5 text-sm leading-6 text-muted">
-              {media.year ?? "Year unavailable"}
-              {media.rating != null ? ` · ★ ${media.rating.toFixed(1)}` : ""}
-              {media.kind === "movie" && media.localCopy
-                ? " · In your library"
-                : ""}
-              {series?.numberOfSeasons != null
-                ? ` · ${series.numberOfSeasons} season${series.numberOfSeasons === 1 ? "" : "s"}`
-                : ""}
+            <p className="mt-5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm leading-6 text-muted">
+              <span>{media.year ?? "Year unavailable"}</span>
+              {media.rating != null ? (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <RatingBadge rating={media.rating} />
+                </>
+              ) : null}
+              {media.kind === "movie" && media.localCopy ? (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span>In your library</span>
+                </>
+              ) : null}
+              {series?.numberOfSeasons != null ? (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span>
+                    {series.numberOfSeasons} season
+                    {series.numberOfSeasons === 1 ? "" : "s"}
+                  </span>
+                </>
+              ) : null}
             </p>
             <p className="mt-6 max-w-2xl text-base leading-7 text-ink/80">
               {media.overview || "No synopsis is available for this title yet."}

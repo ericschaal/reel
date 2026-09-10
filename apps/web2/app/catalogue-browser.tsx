@@ -15,11 +15,11 @@ import { CatalogueCard } from "./media-card";
 import {
   buttonClass,
   CardSkeletons,
+  catalogueNavGroupClass,
+  catalogueNavItemClass,
   EmptyState,
   Eyebrow,
   Header,
-  liquidGlassGroupClass,
-  liquidGlassItemClass,
   pageGutter,
 } from "./ui";
 
@@ -28,7 +28,7 @@ const surfaces: { id: Surface; label: string }[] = [
   { id: "movies", label: "Movies" },
   { id: "series", label: "Series" },
 ];
-const rowClass = `grid grid-flow-col gap-4 overflow-x-auto overscroll-x-contain scroll-px-5 sm:scroll-px-8 lg:scroll-px-12 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden snap-x snap-proximity pt-1 pb-5 sm:gap-5 ${pageGutter}`;
+const rowClass = `grid grid-flow-col gap-4 overflow-x-auto overscroll-x-contain scroll-px-5 sm:scroll-px-8 lg:scroll-px-12 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden snap-x snap-proximity pt-3 pb-7 sm:gap-5 ${pageGutter}`;
 
 export function CatalogueBrowser({ surface }: { surface: Surface }) {
   const [manifest, setManifest] = useState<CatalogueManifest | null>(null);
@@ -107,7 +107,7 @@ export function CatalogueBrowser({ surface }: { surface: Surface }) {
     <div className="min-h-dvh bg-[radial-gradient(ellipse_at_40%_0%,#233336_0%,transparent_45%)]">
       <Header>
         <nav
-          className={`flex rounded-full ${liquidGlassGroupClass}`}
+          className={`flex rounded-full ${catalogueNavGroupClass}`}
           aria-label="Catalogue"
         >
           {surfaces.map((item) => (
@@ -115,7 +115,7 @@ export function CatalogueBrowser({ surface }: { surface: Surface }) {
               key={item.id}
               href={item.id === "discover" ? "/" : `/?surface=${item.id}`}
               aria-current={surface === item.id ? "page" : undefined}
-              className={`inline-flex min-h-11 items-center border-r border-white/50 px-3 text-sm last:border-r-0 sm:px-5 ${liquidGlassItemClass} ${surface === item.id ? "bg-white/30 font-semibold text-ink" : "text-muted hover:bg-white/30 hover:text-ink"}`}
+              className={`inline-flex min-h-11 items-center border-r border-white/10 px-3 text-sm last:border-r-0 sm:px-5 ${catalogueNavItemClass} ${surface === item.id ? "bg-accent/12 font-semibold text-accent shadow-[inset_0_0_20px_#f4bc5212]" : "text-muted hover:text-ink"}`}
             >
               {item.label}
             </Link>

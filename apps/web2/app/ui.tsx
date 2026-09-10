@@ -13,6 +13,10 @@ export const liquidGlassGroupClass =
   "overflow-hidden border border-white/50 bg-white/2.5 backdrop-blur-sm";
 export const liquidGlassItemClass =
   "relative isolate bg-white/2.5 backdrop-blur-sm shadow-[inset_0_1px_0_rgba(255,255,255,0.75),0_0_9px_rgba(0,0,0,0.2),0_3px_8px_rgba(0,0,0,0.15)] transition-all duration-300 before:pointer-events-none before:absolute before:inset-0 before:-z-10 before:bg-linear-to-br before:from-white/60 before:via-transparent before:to-transparent before:opacity-70 after:pointer-events-none after:absolute after:inset-0 after:-z-10 after:bg-linear-to-tl after:from-white/30 after:via-transparent after:to-transparent after:opacity-50";
+export const catalogueNavGroupClass =
+  "overflow-hidden border border-white/12 bg-[#081012]/70 shadow-[0_12px_34px_#0000004d,inset_0_1px_0_#ffffff1f] supports-backdrop-filter:bg-[#0a1718]/50 backdrop-blur-xl backdrop-saturate-150";
+export const catalogueNavItemClass =
+  "relative transition-[color,background-color,box-shadow] duration-200 hover:bg-white/7";
 export const pageGutter = "px-5 sm:px-8 lg:px-12";
 
 export function Header({
