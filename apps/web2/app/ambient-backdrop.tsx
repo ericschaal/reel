@@ -1,24 +1,32 @@
 "use client";
 
 import Image from "next/image";
+import { AnimatePresence, motion, MotionConfig } from "motion/react";
 import {
+  type CSSProperties,
   createContext,
   type ReactNode,
   useCallback,
   useContext,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
-type LayerIndex = 0 | 1;
-type BackdropState = {
-  active: LayerIndex | null;
-  layers: [string | null, string | null];
+const LIGHT_OVERSCAN = 240;
+
+type BackdropLayer = {
+  fromX: number;
+  fromY: number;
+  revision: number;
+  src: string;
+  x: number;
+  y: number;
 };
 
 type AmbientBackdropContextValue = {
   clear: (src: string) => void;
-  show: (src: string) => void;
+  show: (src: string, origin: { x: number; y: number }) => void;
 };
 
 const AmbientBackdropContext = createContext<AmbientBackdropContextValue>({
@@ -27,30 +35,39 @@ const AmbientBackdropContext = createContext<AmbientBackdropContextValue>({
 });
 
 export function AmbientBackdrop({ children }: { children: ReactNode }) {
-  const [backdrop, setBackdrop] = useState<BackdropState>({
-    active: null,
-    layers: [null, null],
-  });
+  const [backdrop, setBackdrop] = useState<BackdropLayer | null>(null);
+  const lastOrigin = useRef<{ x: number; y: number } | null>(null);
 
-  const show = useCallback((src: string) => {
+  const show = useCallback((src: string, origin: { x: number; y: number }) => {
+    const previousOrigin = lastOrigin.current;
+    lastOrigin.current = origin;
     setBackdrop((current) => {
-      const existing = current.layers.indexOf(src);
-      if (existing !== -1) {
-        return { ...current, active: existing as LayerIndex };
-      }
+      if (
+        current?.src === src &&
+        Math.abs(current.x - origin.x) < 1 &&
+        Math.abs(current.y - origin.y) < 1
+      )
+        return current;
 
-      const next: LayerIndex = current.active === 0 ? 1 : 0;
-      const layers: BackdropState["layers"] = [...current.layers];
-      layers[next] = src;
-      return { active: next, layers };
+      return {
+        src,
+        ...origin,
+        fromX: clampTravel(
+          (current?.x ?? previousOrigin?.x ?? origin.x) - origin.x,
+          240,
+        ),
+        fromY: clampTravel(
+          (current?.y ?? previousOrigin?.y ?? origin.y) - origin.y,
+          140,
+        ),
+        revision: (current?.revision ?? 0) + 1,
+      };
     });
   }, []);
 
   const clear = useCallback((src: string) => {
     setBackdrop((current) =>
-      current.active != null && current.layers[current.active] === src
-        ? { ...current, active: null }
-        : current,
+      current?.src === src ? null : current,
     );
   }, []);
   const contextValue = useMemo(() => ({ clear, show }), [clear, show]);
@@ -62,18 +79,16 @@ export function AmbientBackdrop({ children }: { children: ReactNode }) {
           className="pointer-events-none fixed inset-0 -z-10 overflow-hidden"
           aria-hidden="true"
         >
-          {backdrop.layers.map((src, index) =>
-            src ? (
-              <div
-                key={`${index}-${src}`}
-                className={`ambient-artwork ${backdrop.active === index ? "ambient-artwork-active" : ""}`}
-              >
-                <AmbientLavaPool src={src} variant="primary" />
-                <AmbientLavaPool src={src} variant="secondary" />
-                <AmbientLavaPool src={src} variant="accent" />
-              </div>
-            ) : null,
-          )}
+          <MotionConfig reducedMotion="user">
+            <AnimatePresence initial={false}>
+              {backdrop ? (
+                <AmbientArtworkLayer
+                  key={`${backdrop.src}-${backdrop.revision}`}
+                  layer={backdrop}
+                />
+              ) : null}
+            </AnimatePresence>
+          </MotionConfig>
           <div className="ambient-vignette" />
         </div>
         {children}
@@ -86,24 +101,67 @@ export function useAmbientBackdrop() {
   return useContext(AmbientBackdropContext);
 }
 
-function AmbientLavaPool({
-  src,
-  variant,
-}: {
-  src: string;
-  variant: "primary" | "secondary" | "accent";
-}) {
+function clampTravel(value: number, limit: number) {
+  return Math.max(-limit, Math.min(limit, value));
+}
+
+function AmbientArtworkLayer({ layer }: { layer: BackdropLayer }) {
+  const initialOrigin = lightOrigin(
+    layer.x + layer.fromX,
+    layer.y + layer.fromY,
+  );
+  const activeOrigin = lightOrigin(layer.x, layer.y);
+
   return (
-    <div className={`ambient-lava-pool ambient-lava-pool-${variant}`}>
-      <Image
-        src={src}
-        alt=""
-        fill
-        sizes="100vw"
-        unoptimized
-        decoding="async"
-        className="scale-125 object-cover"
-      />
-    </div>
+    <motion.div
+      className="ambient-artwork"
+      style={activeOrigin as CSSProperties}
+      initial={{ opacity: 0, ...initialOrigin }}
+      animate={{ opacity: 1, ...activeOrigin }}
+      exit={{ opacity: 0 }}
+      transition={{
+        opacity: { duration: 0.28, ease: "easeOut" },
+        "--ambient-light-x": {
+          type: "spring",
+          stiffness: 105,
+          damping: 24,
+          mass: 0.72,
+        },
+        "--ambient-light-y": {
+          type: "spring",
+          stiffness: 105,
+          damping: 24,
+          mass: 0.72,
+        },
+      }}
+    >
+      <div className="ambient-light-surface ambient-light-bloom">
+        <AmbientLightImage src={layer.src} />
+      </div>
+      <div className="ambient-light-surface ambient-light-core">
+        <AmbientLightImage src={layer.src} />
+      </div>
+    </motion.div>
+  );
+}
+
+function lightOrigin(x: number, y: number) {
+  return {
+    "--ambient-light-x": `${x + LIGHT_OVERSCAN}px`,
+    "--ambient-light-y": `${y + LIGHT_OVERSCAN}px`,
+  };
+}
+
+function AmbientLightImage({ src }: { src: string }) {
+  return (
+    <Image
+      src={src}
+      alt=""
+      fill
+      sizes="100vw"
+      unoptimized
+      decoding="async"
+      className="scale-115 object-cover"
+    />
   );
 }

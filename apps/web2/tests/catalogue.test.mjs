@@ -257,7 +257,7 @@ test("media cards render rail facts without additional data requests", async () 
   assert.doesNotMatch(source, /useQuery|useIntersectionObserver|titleSummaryQuery|fetch\(/);
 });
 
-test("preselected titles illuminate the catalogue with lava-like artwork", async () => {
+test("preselected titles cast a continuous poster-centered light field", async () => {
   const [backdrop, styles, card, catalogue, collection] = await Promise.all([
     readFile(new URL("../app/ambient-backdrop.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
@@ -269,12 +269,26 @@ test("preselected titles illuminate the catalogue with lava-like artwork", async
     ),
   ]);
 
-  assert.match(backdrop, /variant="primary"/);
-  assert.match(backdrop, /variant="secondary"/);
-  assert.match(backdrop, /variant="accent"/);
-  assert.match(styles, /ambient-lava-primary/);
-  assert.match(styles, /mask-image: radial-gradient/);
-  assert.match(styles, /transition: opacity 900ms/);
+  assert.match(backdrop, /ambient-light-surface/);
+  assert.match(backdrop, /ambient-light-core/);
+  assert.match(backdrop, /ambient-light-bloom/);
+  assert.doesNotMatch(backdrop, /AmbientLavaPool|variant="primary"/);
+  assert.match(styles, /ambient-light-surface/);
+  assert.match(styles, /inset: -240px/);
+  assert.match(styles, /var\(--ambient-light-x\)/);
+  assert.match(styles, /blur\(110px\)/);
+  assert.doesNotMatch(styles, /ambient-lava-pool|border-radius: 48%/);
+  assert.match(card, /getBoundingClientRect\(\)/);
+  assert.match(backdrop, /from "motion\/react"/);
+  assert.match(backdrop, /<AnimatePresence/);
+  assert.match(backdrop, /--ambient-light-x/);
+  assert.match(backdrop, /--ambient-light-y/);
+  assert.doesNotMatch(backdrop, /style=\{\{ left: layer\.x, top: layer\.y \}\}/);
+  assert.match(backdrop, /lastOrigin\.current/);
+  assert.match(backdrop, /duration: 0\.28/);
+  assert.match(backdrop, /stiffness: 105/);
+  assert.match(styles, /saturate\(2\.35\)/);
+  assert.doesNotMatch(styles, /ambient-artwork-enter/);
   assert.match(card, /item\.images\.poster \?\? item\.images\.backdrop/);
   assert.match(card, /onMouseEnter/);
   assert.match(card, /onFocus/);

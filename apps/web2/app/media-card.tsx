@@ -196,8 +196,13 @@ export function CatalogueCard({
 
   const backdrop = layout === "backdrop";
   const ambientArtwork = item.images.poster ?? item.images.backdrop;
-  const showAmbientArtwork = () => {
-    if (ambientArtwork) ambientBackdrop.show(ambientArtwork);
+  const showAmbientArtwork = (element: HTMLElement) => {
+    if (!ambientArtwork) return;
+    const bounds = element.getBoundingClientRect();
+    ambientBackdrop.show(ambientArtwork, {
+      x: bounds.left + bounds.width / 2,
+      y: bounds.top + bounds.height / 2,
+    });
   };
   const clearAmbientArtwork = () => {
     if (ambientArtwork) ambientBackdrop.clear(ambientArtwork);
@@ -207,17 +212,17 @@ export function CatalogueCard({
     <Link
       className="group grid min-w-0 snap-start content-start gap-3 rounded-xl transition-transform duration-300 ease-out hover:z-10 motion-safe:hover:-translate-y-1 motion-safe:hover:scale-[1.035]"
       href={titleHref(item)}
-      onMouseEnter={() => {
+      onMouseEnter={(event) => {
         interactions.current.hovered = true;
-        showAmbientArtwork();
+        showAmbientArtwork(event.currentTarget);
       }}
       onMouseLeave={() => {
         interactions.current.hovered = false;
         if (!interactions.current.focused) clearAmbientArtwork();
       }}
-      onFocus={() => {
+      onFocus={(event) => {
         interactions.current.focused = true;
-        showAmbientArtwork();
+        showAmbientArtwork(event.currentTarget);
       }}
       onBlur={() => {
         interactions.current.focused = false;

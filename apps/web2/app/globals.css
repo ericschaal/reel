@@ -35,119 +35,75 @@
   }
 }
 
-@keyframes ambient-lava-primary {
-  0% {
-    transform: translate3d(-4%, -5%, 0) scale(1);
-  }
-  48% {
-    transform: translate3d(5%, 3%, 0) scale(1.09);
-  }
-  100% {
-    transform: translate3d(-1%, 10%, 0) scale(0.96);
-  }
-}
-
-@keyframes ambient-lava-secondary {
-  0% {
-    transform: translate3d(6%, 7%, 0) scale(0.94) rotate(-4deg);
-  }
-  55% {
-    transform: translate3d(-9%, -2%, 0) scale(1.08) rotate(3deg);
-  }
-  100% {
-    transform: translate3d(-2%, -9%, 0) scale(1) rotate(-2deg);
-  }
-}
-
-@keyframes ambient-lava-accent {
-  0% {
-    transform: translate3d(-7%, 5%, 0) scale(1.05);
-  }
-  50% {
-    transform: translate3d(8%, -8%, 0) scale(0.92);
-  }
-  100% {
-    transform: translate3d(3%, 3%, 0) scale(1.1);
-  }
-}
-
 @layer components {
   .ambient-artwork {
     position: absolute;
-    inset: 0;
-    opacity: 0;
-    transition: opacity 900ms cubic-bezier(0.22, 1, 0.36, 1);
+    inset: -240px;
+    will-change: opacity;
   }
 
-  .ambient-artwork-active {
-    opacity: 1;
-  }
-
-  .ambient-lava-pool {
+  .ambient-light-surface {
     position: absolute;
-    overflow: hidden;
-    border-radius: 48%;
-    filter: blur(64px) saturate(1.7) brightness(0.72);
-    will-change: transform;
+    inset: 0;
+  }
+
+  .ambient-light-bloom {
+    opacity: 0.54;
+    filter: blur(110px) saturate(2.35) brightness(0.88);
     -webkit-mask-image: radial-gradient(
-      ellipse at center,
-      #000 12%,
-      rgb(0 0 0 / 0.82) 38%,
-      rgb(0 0 0 / 0.38) 62%,
-      transparent 82%
+      ellipse 80vw 78vh at var(--ambient-light-x) var(--ambient-light-y),
+      #000 0%,
+      rgb(0 0 0 / 0.76) 22%,
+      rgb(0 0 0 / 0.36) 48%,
+      rgb(0 0 0 / 0.12) 67%,
+      transparent 88%
     );
     mask-image: radial-gradient(
-      ellipse at center,
-      #000 12%,
-      rgb(0 0 0 / 0.82) 38%,
-      rgb(0 0 0 / 0.38) 62%,
-      transparent 82%
+      ellipse 80vw 78vh at var(--ambient-light-x) var(--ambient-light-y),
+      #000 0%,
+      rgb(0 0 0 / 0.76) 22%,
+      rgb(0 0 0 / 0.36) 48%,
+      rgb(0 0 0 / 0.12) 67%,
+      transparent 88%
     );
   }
 
-  .ambient-lava-pool-primary {
-    top: -24vh;
-    left: -12vw;
-    width: 112vw;
-    height: 88vh;
-    opacity: 0.52;
-    animation: ambient-lava-primary 19s ease-in-out infinite alternate;
-  }
-
-  .ambient-lava-pool-secondary {
-    top: 4vh;
-    right: -24vw;
-    width: 78vw;
-    height: 72vh;
-    opacity: 0.38;
-    animation: ambient-lava-secondary 23s ease-in-out -7s infinite alternate;
-  }
-
-  .ambient-lava-pool-accent {
-    bottom: -28vh;
-    left: 6vw;
-    width: 68vw;
-    height: 66vh;
-    opacity: 0.3;
-    animation: ambient-lava-accent 17s ease-in-out -11s infinite alternate;
+  .ambient-light-core {
+    opacity: 0.4;
+    filter: blur(48px) saturate(2) brightness(0.96);
+    -webkit-mask-image: radial-gradient(
+      ellipse 34vw 52vh at var(--ambient-light-x) var(--ambient-light-y),
+      #000 0%,
+      rgb(0 0 0 / 0.72) 28%,
+      rgb(0 0 0 / 0.24) 62%,
+      transparent 92%
+    );
+    mask-image: radial-gradient(
+      ellipse 34vw 52vh at var(--ambient-light-x) var(--ambient-light-y),
+      #000 0%,
+      rgb(0 0 0 / 0.72) 28%,
+      rgb(0 0 0 / 0.24) 62%,
+      transparent 92%
+    );
   }
 
   .ambient-vignette {
     position: absolute;
     inset: 0;
+    z-index: 2;
     background:
       linear-gradient(
         to bottom,
-        rgb(9 11 15 / 0.18) 0%,
-        rgb(9 11 15 / 0.42) 42%,
-        rgb(9 11 15 / 0.84) 76%,
+        rgb(9 11 15 / 0.12) 0%,
+        rgb(9 11 15 / 0.3) 42%,
+        rgb(9 11 15 / 0.78) 76%,
         var(--color-background) 100%
       ),
       radial-gradient(
-        ellipse at 50% 28%,
+        ellipse at center,
         transparent 0%,
-        rgb(9 11 15 / 0.18) 46%,
-        rgb(9 11 15 / 0.82) 100%
+        rgb(9 11 15 / 0.12) 52%,
+        rgb(9 11 15 / 0.76) 100%
       );
   }
 }
