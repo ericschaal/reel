@@ -111,6 +111,23 @@ async fn searches_and_reads_real_movie_and_series_details() {
         .await
         .expect("read series details from Seerr");
     assert_eq!(series_details.id, series.id);
+    let season = series_details
+        .seasons
+        .iter()
+        .find(|season| season.season_number > 0 && season.episode_count.unwrap_or(0) > 0)
+        .expect("the selected series should contain a regular season");
+    let season_details = seerr
+        .season_details(series.id, season.season_number, None)
+        .await
+        .expect("read season and episode details from Seerr");
+    assert_eq!(season_details.season_number, season.season_number);
+    assert!(
+        season_details
+            .episodes
+            .iter()
+            .all(|episode| episode.season_number == season.season_number),
+        "every episode should belong to the requested season"
+    );
 }
 
 #[tokio::test]

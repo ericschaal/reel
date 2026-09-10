@@ -13,8 +13,9 @@ import {
   CardSkeletons,
   EmptyState,
   Eyebrow,
-  glassClass,
   Header,
+  liquidGlassGroupClass,
+  liquidGlassItemClass,
   pageGutter,
 } from "./ui";
 
@@ -61,7 +62,7 @@ export function CatalogueBrowser({ surface }: { surface: Surface }) {
     <div className="min-h-dvh bg-[radial-gradient(ellipse_at_40%_0%,#233336_0%,transparent_45%)]">
       <Header>
         <nav
-          className={`flex gap-1 rounded-full p-1.5 ${glassClass}`}
+          className={`flex rounded-full ${liquidGlassGroupClass}`}
           aria-label="Catalogue"
         >
           {surfaces.map((item) => (
@@ -69,7 +70,7 @@ export function CatalogueBrowser({ surface }: { surface: Surface }) {
               key={item.id}
               href={item.id === "discover" ? "/" : `/?surface=${item.id}`}
               aria-current={surface === item.id ? "page" : undefined}
-              className={`inline-flex min-h-11 items-center rounded-full px-3 text-sm transition-colors sm:px-5 ${surface === item.id ? "bg-white/15 font-semibold text-ink shadow-[inset_0_1px_0_#ffffff45,0_2px_8px_#00000025] ring-1 ring-inset ring-white/20" : "text-muted hover:bg-white/5 hover:text-ink"}`}
+              className={`inline-flex min-h-11 items-center border-r border-white/50 px-3 text-sm last:border-r-0 sm:px-5 ${liquidGlassItemClass} ${surface === item.id ? "bg-white/30 font-semibold text-ink" : "text-muted hover:bg-white/30 hover:text-ink"}`}
             >
               {item.label}
             </Link>

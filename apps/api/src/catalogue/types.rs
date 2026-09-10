@@ -81,6 +81,64 @@ pub struct LocalCopy {
     pub jellyfin_item_id: String,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SeriesDetailsResponse {
+    pub id: String,
+    pub tmdb_id: i64,
+    pub title: String,
+    pub overview: Option<String>,
+    pub year: Option<i32>,
+    pub rating: Option<f64>,
+    pub number_of_seasons: Option<u32>,
+    pub number_of_episodes: Option<u32>,
+    pub images: Images,
+    pub seasons: Vec<SeasonSummary>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SeasonSummary {
+    pub id: String,
+    pub season_number: i32,
+    pub title: String,
+    pub overview: Option<String>,
+    pub air_date: Option<String>,
+    pub episode_count: Option<u32>,
+    pub poster: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SeasonDetailsResponse {
+    pub id: String,
+    pub series_tmdb_id: i64,
+    pub season_number: i32,
+    pub title: String,
+    pub overview: Option<String>,
+    pub air_date: Option<String>,
+    pub poster: Option<String>,
+    pub episodes: Vec<Episode>,
+    #[serde(default)]
+    pub issues: Vec<CatalogueIssue>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Episode {
+    pub id: String,
+    pub tmdb_id: i64,
+    pub season_number: i32,
+    pub episode_number: i32,
+    pub title: String,
+    pub overview: Option<String>,
+    pub air_date: Option<String>,
+    pub rating: Option<f64>,
+    pub still: Option<String>,
+    pub runtime_minutes: Option<u32>,
+    pub local_copy: Option<LocalCopy>,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct CategoryCard {

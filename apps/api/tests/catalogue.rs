@@ -6,7 +6,10 @@ use axum::{
 };
 use reel_api::{
     app,
-    catalogue::{Catalogue, CatalogueItem, CatalogueResponse, CollectionResponse, Surface},
+    catalogue::{
+        Catalogue, CatalogueItem, CatalogueResponse, CollectionResponse, SeasonDetailsResponse,
+        SeriesDetailsResponse, Surface,
+    },
     jellyfin::Jellyfin,
     seerr::Seerr,
 };
@@ -123,6 +126,45 @@ async fn catalogue_previews_link_to_reel_collections() {
             "missing collection link for {id}"
         );
     }
+}
+
+#[tokio::test]
+async fn serves_series_seasons_and_episodes_as_reel_media() {
+    let catalogue = get_catalogue("/v1/catalogue/series?language=en").await;
+    let series = catalogue
+        .sections
+        .iter()
+        .flat_map(|section| &section.items)
+        .find_map(|item| match item {
+            CatalogueItem::Series(series) => Some(series),
+            _ => None,
+        })
+        .expect("series catalogue should contain a series");
+
+    let details: SeriesDetailsResponse =
+        get_json(&format!("/v1/titles/series/{}?language=en", series.tmdb_id)).await;
+    assert_eq!(details.tmdb_id, series.tmdb_id);
+    assert_eq!(details.id, series.id);
+    let season = details
+        .seasons
+        .iter()
+        .find(|season| season.season_number > 0 && season.episode_count.unwrap_or(0) > 0)
+        .expect("series details should contain a regular season");
+
+    let season_details: SeasonDetailsResponse = get_json(&format!(
+        "/v1/titles/series/{}/seasons/{}?language=en",
+        series.tmdb_id, season.season_number
+    ))
+    .await;
+    assert_eq!(season_details.series_tmdb_id, series.tmdb_id);
+    assert_eq!(season_details.season_number, season.season_number);
+    assert!(
+        season_details.episodes.iter().all(|episode| {
+            episode.season_number == season.season_number
+                && episode.id == format!("tmdb:episode:{}", episode.tmdb_id)
+        }),
+        "episodes should have canonical TMDB identities within the requested season"
+    );
 }
 
 #[tokio::test]
@@ -254,6 +296,17 @@ async fn rejects_invalid_collection_cursors_without_contacting_upstreams() {
         body["error"]["message"],
         "The continuation cursor is invalid"
     );
+}
+
+#[tokio::test]
+async fn rejects_invalid_series_hierarchy_identifiers_without_contacting_upstreams() {
+    let (seerr, jellyfin) = clients();
+    let application = app(Catalogue::new(seerr, jellyfin));
+    let response = get(application.clone(), "/v1/titles/series/0").await;
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+
+    let response = get(application, "/v1/titles/series/1/seasons/-1").await;
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]

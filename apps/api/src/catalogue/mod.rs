@@ -97,6 +97,45 @@ impl Catalogue {
         builder.finish()
     }
 
+    pub async fn series_details(
+        &self,
+        tmdb_id: i64,
+        language: Option<String>,
+    ) -> Result<SeriesDetailsResponse, Error> {
+        let details = self
+            .seerr
+            .series_details(tmdb_id, language.as_deref())
+            .await
+            .map_err(map_details_error)?;
+        Ok(media::normalize_series_details(details))
+    }
+
+    pub async fn season_details(
+        &self,
+        tmdb_id: i64,
+        season_number: i32,
+        language: Option<String>,
+    ) -> Result<SeasonDetailsResponse, Error> {
+        let (details, local_episodes) = tokio::join!(
+            self.seerr
+                .season_details(tmdb_id, season_number, language.as_deref()),
+            media::local_episodes(&self.jellyfin, tmdb_id, season_number),
+        );
+        let details = details.map_err(map_details_error)?;
+        let mut issues = Vec::new();
+        let local_episodes = local_episodes.unwrap_or_else(|error| {
+            tracing::warn!(%error, tmdb_id, season_number, "Jellyfin episode enrichment is unavailable");
+            issues.push(CatalogueIssue::upstream(Integration::Jellyfin, None));
+            HashMap::new()
+        });
+        Ok(media::normalize_season_details(
+            tmdb_id,
+            details,
+            local_episodes,
+            issues,
+        ))
+    }
+
     async fn collection(
         &self,
         collection: Collection,
@@ -207,7 +246,22 @@ pub fn router(catalogue: Catalogue) -> Router {
 pub enum Error {
     InvalidCursor,
     NotFound,
+    MediaNotFound,
     Unavailable,
+}
+
+fn map_details_error(error: crate::seerr::Error) -> Error {
+    match error {
+        crate::seerr::Error::Rejected { status, .. }
+            if status == reqwest::StatusCode::NOT_FOUND =>
+        {
+            Error::MediaNotFound
+        }
+        error => {
+            tracing::warn!(%error, "Seerr title details are unavailable");
+            Error::Unavailable
+        }
+    }
 }
 
 struct SurfaceBuilder<'a> {

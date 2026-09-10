@@ -149,6 +149,20 @@ impl Seerr {
             .get_with_query(&format!("tv/{tmdb_id}"), &LanguageQuery { language })
             .await
     }
+
+    pub async fn season_details(
+        &self,
+        tmdb_id: i64,
+        season_number: i32,
+        language: Option<&str>,
+    ) -> Result<SeasonDetails> {
+        self.http
+            .get_with_query(
+                &format!("tv/{tmdb_id}/season/{season_number}"),
+                &LanguageQuery { language },
+            )
+            .await
+    }
 }
 
 #[derive(Serialize)]

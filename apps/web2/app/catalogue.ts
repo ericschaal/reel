@@ -43,6 +43,78 @@ export type CollectionResponse = {
   next: string | null;
 };
 
+export type SeriesDetails = {
+  id: string;
+  tmdbId: number;
+  title: string;
+  overview: string | null;
+  year: number | null;
+  rating: number | null;
+  numberOfSeasons: number | null;
+  numberOfEpisodes: number | null;
+  images: { poster: string | null; backdrop: string | null };
+  seasons: SeasonSummary[];
+};
+
+export type SeasonSummary = {
+  id: string;
+  seasonNumber: number;
+  title: string;
+  overview: string | null;
+  airDate: string | null;
+  episodeCount: number | null;
+  poster: string | null;
+};
+
+export type SeasonDetails = {
+  id: string;
+  seriesTmdbId: number;
+  seasonNumber: number;
+  title: string;
+  overview: string | null;
+  airDate: string | null;
+  poster: string | null;
+  episodes: Episode[];
+  issues: Array<{
+    source: "jellyfin" | "seerr";
+    sectionId: string | null;
+    code: "upstreamUnavailable";
+  }>;
+};
+
+export type Episode = {
+  id: string;
+  tmdbId: number;
+  seasonNumber: number;
+  episodeNumber: number;
+  title: string;
+  overview: string | null;
+  airDate: string | null;
+  rating: number | null;
+  still: string | null;
+  runtimeMinutes: number | null;
+  localCopy: { jellyfinItemId: string } | null;
+};
+
+export function firstRegularSeason(series: SeriesDetails) {
+  return (
+    series.seasons.find(
+      (season) => season.seasonNumber > 0 && (season.episodeCount ?? 0) > 0,
+    ) ??
+    series.seasons.find((season) => (season.episodeCount ?? 0) > 0) ??
+    series.seasons[0] ??
+    null
+  );
+}
+
+export function reelProxyPathAllowed(path: string) {
+  return (
+    /^v1\/catalogue\/(?:(?:discover|movies|series)|collections\/[a-z0-9-]+(?:\/[0-9]+)?)$/.test(
+      path,
+    ) || /^v1\/titles\/series\/[0-9]+(?:\/seasons\/[0-9]+)?$/.test(path)
+  );
+}
+
 export function collectionHref(apiHref: string) {
   return `/collection?href=${encodeURIComponent(apiHref)}`;
 }

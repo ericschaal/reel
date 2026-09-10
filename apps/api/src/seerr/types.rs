@@ -250,3 +250,29 @@ pub struct Season {
     pub poster_path: Option<String>,
     pub overview: Option<String>,
 }
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SeasonDetails {
+    pub id: i64,
+    pub name: String,
+    pub season_number: i32,
+    pub air_date: Option<String>,
+    pub poster_path: Option<String>,
+    pub overview: Option<String>,
+    #[serde(default)]
+    pub episodes: Vec<EpisodeDetails>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct EpisodeDetails {
+    pub id: i64,
+    pub name: String,
+    pub episode_number: i32,
+    pub season_number: i32,
+    pub air_date: Option<String>,
+    pub overview: Option<String>,
+    pub still_path: Option<String>,
+    pub vote_average: Option<f64>,
+}

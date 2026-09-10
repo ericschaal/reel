@@ -3,6 +3,8 @@ import test from "node:test";
 import {
   collectionHref,
   collectionProxyHref,
+  firstRegularSeason,
+  reelProxyPathAllowed,
   titleHref,
 } from "../app/catalogue.ts";
 
@@ -47,4 +49,25 @@ test("title links round-trip reserved characters and a zero rating", () => {
   assert.equal(url.searchParams.get("overview"), item.overview);
   assert.equal(url.searchParams.get("rating"), "0");
   assert.equal(url.searchParams.has("local"), false);
+});
+
+test("series selects the first populated regular season before specials", () => {
+  const series = {
+    seasons: [
+      { id: "specials", seasonNumber: 0, episodeCount: 3 },
+      { id: "empty", seasonNumber: 1, episodeCount: 0 },
+      { id: "season-two", seasonNumber: 2, episodeCount: 8 },
+    ],
+  };
+  assert.equal(firstRegularSeason(series)?.seasonNumber, 2);
+});
+
+test("proxy permits only supported series hierarchy routes", () => {
+  assert.equal(reelProxyPathAllowed("v1/titles/series/123"), true);
+  assert.equal(
+    reelProxyPathAllowed("v1/titles/series/123/seasons/2"),
+    true,
+  );
+  assert.equal(reelProxyPathAllowed("v1/titles/series/abc"), false);
+  assert.equal(reelProxyPathAllowed("v1/titles/series/123/episodes"), false);
 });

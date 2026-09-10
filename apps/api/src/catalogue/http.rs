@@ -7,13 +7,21 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
-use super::{Catalogue, CatalogueResponse, Collection, CollectionResponse, Error};
+use super::{
+    Catalogue, CatalogueResponse, Collection, CollectionResponse, Error, SeasonDetailsResponse,
+    SeriesDetailsResponse,
+};
 
 pub(super) fn router(catalogue: Catalogue) -> Router {
     Router::new()
         .route("/v1/catalogue/discover", get(discover))
         .route("/v1/catalogue/movies", get(movies))
         .route("/v1/catalogue/series", get(series))
+        .route("/v1/titles/series/{tmdb_id}", get(series_details))
+        .route(
+            "/v1/titles/series/{tmdb_id}/seasons/{season_number}",
+            get(season_details),
+        )
         .route("/v1/catalogue/collections/{collection}", get(collection))
         .route(
             "/v1/catalogue/collections/{collection}/{category_id}",
@@ -54,6 +62,34 @@ async fn series(
     catalogue.series(query.language).await.map(Json)
 }
 
+async fn series_details(
+    State(catalogue): State<Catalogue>,
+    Path(tmdb_id): Path<i64>,
+    Query(query): Query<CatalogueQuery>,
+) -> Result<Json<SeriesDetailsResponse>, Error> {
+    if tmdb_id <= 0 {
+        return Err(Error::MediaNotFound);
+    }
+    catalogue
+        .series_details(tmdb_id, query.language)
+        .await
+        .map(Json)
+}
+
+async fn season_details(
+    State(catalogue): State<Catalogue>,
+    Path((tmdb_id, season_number)): Path<(i64, i32)>,
+    Query(query): Query<CatalogueQuery>,
+) -> Result<Json<SeasonDetailsResponse>, Error> {
+    if tmdb_id <= 0 || season_number < 0 {
+        return Err(Error::MediaNotFound);
+    }
+    catalogue
+        .season_details(tmdb_id, season_number, query.language)
+        .await
+        .map(Json)
+}
+
 async fn collection(
     State(catalogue): State<Catalogue>,
     Path(collection): Path<String>,
@@ -90,6 +126,11 @@ impl IntoResponse for Error {
                 StatusCode::NOT_FOUND,
                 "collection_not_found",
                 "The catalogue collection was not found",
+            ),
+            Self::MediaNotFound => (
+                StatusCode::NOT_FOUND,
+                "media_not_found",
+                "The requested media was not found",
             ),
             Self::Unavailable => (
                 StatusCode::BAD_GATEWAY,

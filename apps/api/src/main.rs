@@ -4,6 +4,7 @@ use reel_api::{app, catalogue::Catalogue, jellyfin::Jellyfin, seerr::Seerr};
 
 #[tokio::main]
 async fn main() -> Result<(), io::Error> {
+    dotenvy::dotenv().ok();
     tracing_subscriber::fmt::init();
 
     let catalogue = Catalogue::new(

@@ -15,6 +15,7 @@ percent-encoding.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 base64.workspace = true
+dotenvy.workspace = true
 
 [dev-dependencies]
 dotenvy.workspace = true

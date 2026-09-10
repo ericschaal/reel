@@ -12,7 +12,10 @@ npm run dev
 
 Open [http://localhost:3001](http://localhost:3001). The frontend proxies catalogue requests to `REEL_API_URL`, which defaults to `http://localhost:3000`.
 
-The title page currently provides interactive previews for playback source selection, streaming, and download requests. Those actions remain local UI state until the corresponding backend endpoints are implemented.
+Series title pages load season summaries and episode metadata from Reel, then
+enrich each episode with its Jellyfin local-copy status. Playback source,
+streaming, and download controls remain interactive previews until the
+corresponding action endpoints are implemented.
 
 ## Checks
 

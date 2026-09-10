@@ -9,6 +9,10 @@ export const primaryButtonClass = `${buttonBase} border-accent bg-accent text-ba
 // and inset highlights. Text sits above the effect and stays crisp.
 export const glassClass =
   "border border-white/20 bg-panel/90 bg-linear-to-br from-white/12 via-white/3 to-white/6 shadow-[0_8px_32px_#00000030,inset_0_1px_0_#ffffff30,inset_0_-1px_0_#ffffff08] supports-backdrop-filter:bg-panel/60 backdrop-blur-2xl backdrop-saturate-150";
+export const liquidGlassGroupClass =
+  "overflow-hidden border border-white/50 bg-white/2.5 backdrop-blur-sm";
+export const liquidGlassItemClass =
+  "relative isolate bg-white/2.5 backdrop-blur-sm shadow-[inset_0_1px_0_rgba(255,255,255,0.75),0_0_9px_rgba(0,0,0,0.2),0_3px_8px_rgba(0,0,0,0.15)] transition-all duration-300 before:pointer-events-none before:absolute before:inset-0 before:-z-10 before:bg-linear-to-br before:from-white/60 before:via-transparent before:to-transparent before:opacity-70 after:pointer-events-none after:absolute after:inset-0 after:-z-10 after:bg-linear-to-tl after:from-white/30 after:via-transparent after:to-transparent after:opacity-50";
 export const pageGutter = "px-5 sm:px-8 lg:px-12";
 
 export function Header({
