@@ -119,6 +119,36 @@ test("title links round-trip reserved characters and a zero rating", () => {
   assert.equal(url.searchParams.has("local"), false);
 });
 
+test("title links carry progress and remember the last source as a preference", () => {
+  const url = new URL(
+    titleHref({
+      kind: "movie",
+      id: "movie-1",
+      tmdbId: 1,
+      title: "Movie",
+      overview: null,
+      year: 2026,
+      rating: null,
+      images: { poster: null, backdrop: null },
+      localCopy: null,
+      progress: {
+        positionSeconds: 3720,
+        durationSeconds: 9960,
+        lastSourceId: "stremio-2",
+        lastSourceLabel: "Stremio · 2",
+        lastSourceKind: "stream",
+      },
+    }),
+    "http://reel.local",
+  );
+
+  assert.equal(url.searchParams.get("progress"), "3720");
+  assert.equal(url.searchParams.get("duration"), "9960");
+  assert.equal(url.searchParams.get("lastSource"), "stremio-2");
+  assert.equal(url.searchParams.get("lastSourceLabel"), "Stremio · 2");
+  assert.equal(url.searchParams.get("lastSourceKind"), "stream");
+});
+
 test("series selects the first populated regular season before specials", () => {
   const series = {
     seasons: [

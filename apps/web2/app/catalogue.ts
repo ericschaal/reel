@@ -10,6 +10,16 @@ export type MediaCard = {
   rating: number | null;
   images: { poster: string | null; backdrop: string | null };
   localCopy: { jellyfinItemId: string } | null;
+  progress?: PlaybackProgress | null;
+};
+
+export type PlaybackProgress = {
+  positionSeconds: number;
+  durationSeconds: number;
+  lastSourceId: string;
+  lastSourceLabel: string;
+  lastSourceKind: "local" | "stream";
+  episodeId?: string;
 };
 
 export type CategoryCard = {
@@ -152,6 +162,14 @@ export function titleHref(item: MediaCard) {
   if (item.images.poster) query.set("poster", item.images.poster);
   if (item.images.backdrop) query.set("backdrop", item.images.backdrop);
   if (item.localCopy) query.set("local", "true");
+  if (item.progress) {
+    query.set("progress", String(item.progress.positionSeconds));
+    query.set("duration", String(item.progress.durationSeconds));
+    query.set("lastSource", item.progress.lastSourceId);
+    query.set("lastSourceLabel", item.progress.lastSourceLabel);
+    query.set("lastSourceKind", item.progress.lastSourceKind);
+    if (item.progress.episodeId) query.set("episodeId", item.progress.episodeId);
+  }
   return `/title/${item.kind}/${encodeURIComponent(item.id)}?${query.toString()}`;
 }
 

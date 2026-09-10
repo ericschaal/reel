@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import {
   firstRegularSeason,
   type MediaCard,
+  type PlaybackProgress,
   type SeasonDetails,
   type SeriesDetails,
 } from "../../../catalogue";
@@ -30,6 +31,32 @@ function imageValue(query: Query, key: string) {
   } catch {
     return null;
   }
+}
+
+function progressValue(query: Query): PlaybackProgress | null {
+  const positionSeconds = numericValue(query, "progress");
+  const durationSeconds = numericValue(query, "duration");
+  const lastSourceKind = value(query, "lastSourceKind");
+  const lastSourceId = value(query, "lastSource");
+  const lastSourceLabel = value(query, "lastSourceLabel");
+  if (
+    positionSeconds == null ||
+    durationSeconds == null ||
+    positionSeconds <= 0 ||
+    positionSeconds >= durationSeconds ||
+    (lastSourceKind !== "local" && lastSourceKind !== "stream") ||
+    !lastSourceId ||
+    !lastSourceLabel
+  )
+    return null;
+  return {
+    positionSeconds,
+    durationSeconds,
+    lastSourceId,
+    lastSourceLabel,
+    lastSourceKind,
+    episodeId: value(query, "episodeId"),
+  };
 }
 
 export default async function TitlePage({
@@ -82,6 +109,7 @@ export default async function TitlePage({
     },
     localCopy:
       value(query, "local") === "true" ? { jellyfinItemId: "available" } : null,
+    progress: progressValue(query),
   };
   const media: MediaCard = series
     ? {
@@ -94,6 +122,7 @@ export default async function TitlePage({
         rating: series.rating,
         images: series.images,
         localCopy: null,
+        progress: fallbackMedia.progress,
       }
     : fallbackMedia;
 
