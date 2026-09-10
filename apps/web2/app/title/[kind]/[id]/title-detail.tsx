@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import type {
   Episode,
   MediaCard,
@@ -69,7 +69,6 @@ export function TitleDetail({
       null,
   );
   const [episodeDialog, setEpisodeDialog] = useState<Episode | null>(null);
-  const seriesScrollPosition = useRef(0);
   const localCopy =
     media.kind === "series" ? nextEpisode?.localCopy : media.localCopy;
   const [selectedSource, setSelectedSource] = useState("stremio-1");
@@ -142,19 +141,11 @@ export function TitleDetail({
   }
 
   function openEpisode(episode: Episode) {
-    if (!episodeDialog) seriesScrollPosition.current = window.scrollY;
     setEpisodeDialog(episode);
-    window.scrollTo({ top: 0, behavior: "instant" });
   }
 
   function closeEpisode() {
     setEpisodeDialog(null);
-    requestAnimationFrame(() =>
-      window.scrollTo({
-        top: seriesScrollPosition.current,
-        behavior: "instant",
-      }),
-    );
   }
 
   if (activePlayback) {

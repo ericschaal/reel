@@ -56,6 +56,15 @@ test("episode rows keep content stationary and promote the air date", async () =
   assert.match(source, /formatAirDate\(episode\.airDate\)/);
 });
 
+test("opening an episode does not force the page scroll position", async () => {
+  const source = await readFile(
+    new URL("../app/title/[kind]/[id]/title-detail.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.doesNotMatch(source, /window\.scrollTo|seriesScrollPosition/);
+});
+
 test("all secondary pages use the shared navigation header", async () => {
   const [ui, collection, title] = await Promise.all([
     readFile(new URL("../app/ui.tsx", import.meta.url), "utf8"),
