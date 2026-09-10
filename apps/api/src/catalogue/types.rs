@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-use crate::integration::Integration;
+use crate::{
+    integration::Integration,
+    media::{SeasonNumber, TmdbId},
+};
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -95,7 +98,7 @@ pub enum CatalogueItem {
 #[serde(rename_all = "camelCase")]
 pub struct MediaCard {
     pub id: String,
-    pub tmdb_id: i64,
+    pub tmdb_id: TmdbId,
     pub title: String,
     pub overview: Option<String>,
     pub year: Option<i32>,
@@ -120,7 +123,7 @@ pub struct LocalCopy {
 #[serde(rename_all = "camelCase")]
 pub struct MovieDetailsResponse {
     pub id: String,
-    pub tmdb_id: i64,
+    pub tmdb_id: TmdbId,
     pub title: String,
     pub overview: Option<String>,
     pub year: Option<i32>,
@@ -134,7 +137,7 @@ pub struct MovieDetailsResponse {
 #[serde(rename_all = "camelCase")]
 pub struct SeriesDetailsResponse {
     pub id: String,
-    pub tmdb_id: i64,
+    pub tmdb_id: TmdbId,
     pub title: String,
     pub overview: Option<String>,
     pub year: Option<i32>,
@@ -152,7 +155,7 @@ pub struct SeriesDetailsResponse {
 #[serde(rename_all = "camelCase")]
 pub struct SeasonSummary {
     pub id: String,
-    pub season_number: i32,
+    pub season_number: SeasonNumber,
     pub title: String,
     pub overview: Option<String>,
     pub air_date: Option<String>,
@@ -164,8 +167,8 @@ pub struct SeasonSummary {
 #[serde(rename_all = "camelCase")]
 pub struct SeasonDetailsResponse {
     pub id: String,
-    pub series_tmdb_id: i64,
-    pub season_number: i32,
+    pub series_tmdb_id: TmdbId,
+    pub season_number: SeasonNumber,
     pub title: String,
     pub overview: Option<String>,
     pub air_date: Option<String>,
@@ -179,8 +182,8 @@ pub struct SeasonDetailsResponse {
 #[serde(rename_all = "camelCase")]
 pub struct Episode {
     pub id: String,
-    pub tmdb_id: i64,
-    pub season_number: i32,
+    pub tmdb_id: TmdbId,
+    pub season_number: SeasonNumber,
     pub episode_number: i32,
     pub title: String,
     pub overview: Option<String>,

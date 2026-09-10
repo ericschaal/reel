@@ -11,11 +11,13 @@ use std::{
 };
 
 use axum::Router;
-use tokio::sync::Mutex;
+use thiserror::Error as ThisError;
+use tokio::sync::{Mutex, Semaphore};
 
 use crate::{
     integration::Integration,
     jellyfin::Jellyfin,
+    media::{SeasonNumber, TmdbId},
     seerr::{
         DiscoverMoviesQuery, DiscoverResponse, DiscoverSeriesQuery, GenreSliderItem, Seerr,
         TimeWindow, TrendingMediaType, TrendingQuery,
@@ -33,37 +35,46 @@ const LOCAL_MOVIES_CACHE_TTL: Duration = Duration::from_secs(30);
 pub struct Catalogue {
     seerr: Seerr,
     jellyfin: Jellyfin,
-    local_movies: Arc<Mutex<Option<CachedLocalMovies>>>,
+    local_movies: Arc<LocalMoviesCache>,
+}
+
+struct LocalMoviesCache {
+    value: Mutex<Option<CachedLocalMovies>>,
+    refresh: Semaphore,
 }
 
 struct CachedLocalMovies {
     loaded_at: Instant,
-    movies: HashMap<i64, LocalCopy>,
+    movies: Arc<HashMap<TmdbId, LocalCopy>>,
 }
 
 impl Catalogue {
+    #[must_use]
     pub fn new(seerr: Seerr, jellyfin: Jellyfin) -> Self {
         Self {
             seerr,
             jellyfin,
-            local_movies: Arc::new(Mutex::new(None)),
+            local_movies: Arc::new(LocalMoviesCache {
+                value: Mutex::new(None),
+                refresh: Semaphore::new(1),
+            }),
         }
     }
 
-    pub async fn discover(&self, language: Option<String>) -> Result<CatalogueResponse, Error> {
-        let trending_query = trending_query(TrendingMediaType::All, 1, language.clone());
-        let movies_query = popular_movies_query(1, language.clone());
-        let series_query = popular_series_query(1, language.clone());
+    pub async fn discover(&self, language: Option<&str>) -> Result<CatalogueResponse, Error> {
+        let trending_query = trending_query(TrendingMediaType::All, 1, language);
+        let movies_query = popular_movies_query(1, language);
+        let series_query = popular_series_query(1, language);
         let (trending, movies, series, movie_genres, series_genres, local_movies) = tokio::join!(
             self.seerr.trending(&trending_query),
             self.seerr.movies(&movies_query),
             self.seerr.series(&series_query),
-            self.seerr.movie_genres(language.as_deref()),
-            self.seerr.series_genres(language.as_deref()),
+            self.seerr.movie_genres(language),
+            self.seerr.series_genres(language),
             self.local_movies(),
         );
 
-        let mut builder = SurfaceBuilder::new(Surface::Discover, language.as_deref());
+        let mut builder = SurfaceBuilder::new(Surface::Discover, language);
         builder.local_movies(local_movies);
         builder.media(Collection::Trending, trending);
         builder.media(Collection::PopularMovies, movies);
@@ -75,17 +86,17 @@ impl Catalogue {
         builder.finish()
     }
 
-    pub async fn movies(&self, language: Option<String>) -> Result<CatalogueResponse, Error> {
-        let trending_query = trending_query(TrendingMediaType::Movie, 1, language.clone());
-        let popular_query = popular_movies_query(1, language.clone());
+    pub async fn movies(&self, language: Option<&str>) -> Result<CatalogueResponse, Error> {
+        let trending_query = trending_query(TrendingMediaType::Movie, 1, language);
+        let popular_query = popular_movies_query(1, language);
         let (trending, popular, genres, local_movies) = tokio::join!(
             self.seerr.trending(&trending_query),
             self.seerr.movies(&popular_query),
-            self.seerr.movie_genres(language.as_deref()),
+            self.seerr.movie_genres(language),
             self.local_movies(),
         );
 
-        let mut builder = SurfaceBuilder::new(Surface::Movies, language.as_deref());
+        let mut builder = SurfaceBuilder::new(Surface::Movies, language);
         builder.local_movies(local_movies);
         builder.media(Collection::TrendingMovies, trending);
         builder.media(Collection::PopularMovies, popular);
@@ -94,18 +105,18 @@ impl Catalogue {
         builder.finish()
     }
 
-    pub async fn series(&self, language: Option<String>) -> Result<CatalogueResponse, Error> {
+    pub async fn series(&self, language: Option<&str>) -> Result<CatalogueResponse, Error> {
         // A Jellyfin series item proves library presence, not that every episode is playable.
         // Episode-level availability belongs on the series hierarchy, not catalogue cards.
-        let trending_query = trending_query(TrendingMediaType::Tv, 1, language.clone());
-        let popular_query = popular_series_query(1, language.clone());
+        let trending_query = trending_query(TrendingMediaType::Tv, 1, language);
+        let popular_query = popular_series_query(1, language);
         let (trending, popular, genres) = tokio::join!(
             self.seerr.trending(&trending_query),
             self.seerr.series(&popular_query),
-            self.seerr.series_genres(language.as_deref()),
+            self.seerr.series_genres(language),
         );
 
-        let mut builder = SurfaceBuilder::new(Surface::Series, language.as_deref());
+        let mut builder = SurfaceBuilder::new(Surface::Series, language);
         builder.media(Collection::TrendingSeries, trending);
         builder.media(Collection::PopularSeries, popular);
         builder.genres(MediaKind::Series, genres);
@@ -115,12 +126,12 @@ impl Catalogue {
 
     pub async fn series_details(
         &self,
-        tmdb_id: i64,
-        language: Option<String>,
+        tmdb_id: TmdbId,
+        language: Option<&str>,
     ) -> Result<SeriesDetailsResponse, Error> {
         let details = self
             .seerr
-            .series_details(tmdb_id, language.as_deref())
+            .series_details(tmdb_id, language)
             .await
             .map_err(map_details_error)?;
         let mut response = media::normalize_series_details(details);
@@ -132,8 +143,8 @@ impl Catalogue {
                 Err(error) => {
                     tracing::warn!(
                         ?error,
-                        tmdb_id,
-                        season_number,
+                        %tmdb_id,
+                        %season_number,
                         "initial season guide is unavailable"
                     );
                     response
@@ -147,13 +158,11 @@ impl Catalogue {
 
     pub async fn movie_details(
         &self,
-        tmdb_id: i64,
-        language: Option<String>,
+        tmdb_id: TmdbId,
+        language: Option<&str>,
     ) -> Result<MovieDetailsResponse, Error> {
-        let (details, local_movies) = tokio::join!(
-            self.seerr.movie(tmdb_id, language.as_deref()),
-            self.local_movies(),
-        );
+        let (details, local_movies) =
+            tokio::join!(self.seerr.movie(tmdb_id, language), self.local_movies(),);
         let details = details.map_err(map_details_error)?;
         let local_copy = local_movies.unwrap_or_default().get(&tmdb_id).cloned();
         Ok(media::normalize_movie_details(details, local_copy))
@@ -161,19 +170,18 @@ impl Catalogue {
 
     pub async fn season_details(
         &self,
-        tmdb_id: i64,
-        season_number: i32,
-        language: Option<String>,
+        tmdb_id: TmdbId,
+        season_number: SeasonNumber,
+        language: Option<&str>,
     ) -> Result<SeasonDetailsResponse, Error> {
         let (details, local_episodes) = tokio::join!(
-            self.seerr
-                .season_details(tmdb_id, season_number, language.as_deref()),
+            self.seerr.season_details(tmdb_id, season_number, language),
             media::local_episodes(&self.jellyfin, tmdb_id, season_number),
         );
         let details = details.map_err(map_details_error)?;
         let mut issues = Vec::new();
         let local_episodes = local_episodes.unwrap_or_else(|error| {
-            tracing::warn!(%error, tmdb_id, season_number, "Jellyfin episode enrichment is unavailable");
+            tracing::warn!(%error, %tmdb_id, %season_number, "Jellyfin episode enrichment is unavailable");
             issues.push(CatalogueIssue::upstream(Integration::Jellyfin, None));
             HashMap::new()
         });
@@ -188,11 +196,10 @@ impl Catalogue {
     async fn collection(
         &self,
         collection: Collection,
-        language: Option<String>,
-        cursor: Option<String>,
+        language: Option<&str>,
+        cursor: Option<&str>,
     ) -> Result<CollectionResponse, Error> {
-        let page =
-            navigation::page_from_cursor(cursor.as_deref(), &collection, language.as_deref())?;
+        let page = navigation::page_from_cursor(cursor, &collection, language)?;
         let local_movies = async {
             if collection.includes_movies() {
                 Some(self.local_movies().await)
@@ -201,7 +208,7 @@ impl Catalogue {
             }
         };
         let (response, local_movies) = tokio::join!(
-            self.fetch_collection(collection, page, language.as_deref()),
+            self.fetch_collection(collection, page, language),
             local_movies,
         );
         let response = response.map_err(|error| {
@@ -213,13 +220,8 @@ impl Catalogue {
         let local_movies = local_movies
             .map(|result| unwrap_local_movies(result, &mut issues))
             .unwrap_or_default();
-        let next = (response.page < response.total_pages).then(|| {
-            navigation::next_page(
-                &collection,
-                language.as_deref(),
-                response.page.saturating_add(1),
-            )
-        });
+        let next = (response.page < response.total_pages)
+            .then(|| navigation::next_page(&collection, language, response.page.saturating_add(1)));
 
         Ok(CollectionResponse {
             id: collection.id(),
@@ -251,23 +253,23 @@ impl Catalogue {
         &self,
         surface: Surface,
         rail_id: &str,
-        language: Option<String>,
+        language: Option<&str>,
     ) -> Result<CatalogueRailResponse, Error> {
         if !rail_specs(surface).iter().any(|spec| spec.id == rail_id) {
             return Err(Error::NotFound);
         }
 
-        let mut builder = SurfaceBuilder::new(surface, language.as_deref());
+        let mut builder = SurfaceBuilder::new(surface, language);
         match rail_id {
             "trending" => {
-                let query = trending_query(TrendingMediaType::All, 1, language.clone());
+                let query = trending_query(TrendingMediaType::All, 1, language);
                 let (items, local_movies) =
                     tokio::join!(self.seerr.trending(&query), self.local_movies(),);
                 builder.local_movies(local_movies);
                 builder.media(Collection::Trending, items);
             }
             "trending-movies" => {
-                let query = trending_query(TrendingMediaType::Movie, 1, language.clone());
+                let query = trending_query(TrendingMediaType::Movie, 1, language);
                 let (items, local_movies) =
                     tokio::join!(self.seerr.trending(&query), self.local_movies(),);
                 builder.local_movies(local_movies);
@@ -276,11 +278,11 @@ impl Catalogue {
             "trending-series" => builder.media(
                 Collection::TrendingSeries,
                 self.seerr
-                    .trending(&trending_query(TrendingMediaType::Tv, 1, language.clone()))
+                    .trending(&trending_query(TrendingMediaType::Tv, 1, language))
                     .await,
             ),
             "popular-movies" => {
-                let query = popular_movies_query(1, language.clone());
+                let query = popular_movies_query(1, language);
                 let (items, local_movies) =
                     tokio::join!(self.seerr.movies(&query), self.local_movies(),);
                 builder.local_movies(local_movies);
@@ -288,18 +290,14 @@ impl Catalogue {
             }
             "popular-series" => builder.media(
                 Collection::PopularSeries,
-                self.seerr
-                    .series(&popular_series_query(1, language.clone()))
-                    .await,
+                self.seerr.series(&popular_series_query(1, language)).await,
             ),
-            "movie-genres" => builder.genres(
-                MediaKind::Movie,
-                self.seerr.movie_genres(language.as_deref()).await,
-            ),
-            "series-genres" => builder.genres(
-                MediaKind::Series,
-                self.seerr.series_genres(language.as_deref()).await,
-            ),
+            "movie-genres" => {
+                builder.genres(MediaKind::Movie, self.seerr.movie_genres(language).await)
+            }
+            "series-genres" => {
+                builder.genres(MediaKind::Series, self.seerr.series_genres(language).await)
+            }
             "studios" => builder.curated(CategoryKind::Studio, STUDIOS),
             "networks" => builder.curated(CategoryKind::Network, NETWORKS),
             _ => return Err(Error::NotFound),
@@ -317,21 +315,39 @@ impl Catalogue {
         })
     }
 
-    async fn local_movies(&self) -> crate::jellyfin::Result<HashMap<i64, LocalCopy>> {
-        let mut cache = self.local_movies.lock().await;
-        if let Some(cached) = cache
-            .as_ref()
-            .filter(|cached| cached.loaded_at.elapsed() < LOCAL_MOVIES_CACHE_TTL)
-        {
-            return Ok(cached.movies.clone());
+    async fn local_movies(&self) -> crate::jellyfin::Result<Arc<HashMap<TmdbId, LocalCopy>>> {
+        if let Some(movies) = self.cached_local_movies().await {
+            return Ok(movies);
         }
 
-        let movies = media::local_movies(&self.jellyfin).await?;
-        *cache = Some(CachedLocalMovies {
+        let _refresh = self
+            .local_movies
+            .refresh
+            .acquire()
+            .await
+            .expect("the private cache semaphore is never closed");
+
+        // A concurrent request may have populated the cache while this task waited.
+        if let Some(movies) = self.cached_local_movies().await {
+            return Ok(movies);
+        }
+
+        let movies = Arc::new(media::local_movies(&self.jellyfin).await?);
+        *self.local_movies.value.lock().await = Some(CachedLocalMovies {
             loaded_at: Instant::now(),
             movies: movies.clone(),
         });
         Ok(movies)
+    }
+
+    async fn cached_local_movies(&self) -> Option<Arc<HashMap<TmdbId, LocalCopy>>> {
+        self.local_movies
+            .value
+            .lock()
+            .await
+            .as_ref()
+            .filter(|cached| cached.loaded_at.elapsed() < LOCAL_MOVIES_CACHE_TTL)
+            .map(|cached| cached.movies.clone())
     }
 
     async fn fetch_collection(
@@ -343,39 +359,27 @@ impl Catalogue {
         match collection {
             Collection::Trending => {
                 self.seerr
-                    .trending(&trending_query(
-                        TrendingMediaType::All,
-                        page,
-                        language.map(str::to_owned),
-                    ))
+                    .trending(&trending_query(TrendingMediaType::All, page, language))
                     .await
             }
             Collection::TrendingMovies => {
                 self.seerr
-                    .trending(&trending_query(
-                        TrendingMediaType::Movie,
-                        page,
-                        language.map(str::to_owned),
-                    ))
+                    .trending(&trending_query(TrendingMediaType::Movie, page, language))
                     .await
             }
             Collection::TrendingSeries => {
                 self.seerr
-                    .trending(&trending_query(
-                        TrendingMediaType::Tv,
-                        page,
-                        language.map(str::to_owned),
-                    ))
+                    .trending(&trending_query(TrendingMediaType::Tv, page, language))
                     .await
             }
             Collection::PopularMovies => {
                 self.seerr
-                    .movies(&popular_movies_query(page, language.map(str::to_owned)))
+                    .movies(&popular_movies_query(page, language))
                     .await
             }
             Collection::PopularSeries => {
                 self.seerr
-                    .series(&popular_series_query(page, language.map(str::to_owned)))
+                    .series(&popular_series_query(page, language))
                     .await
             }
             Collection::MovieGenre(id) => {
@@ -463,11 +467,15 @@ pub fn router(catalogue: Catalogue) -> Router {
     http::router(catalogue)
 }
 
-#[derive(Debug)]
+#[derive(Debug, ThisError)]
 pub enum Error {
+    #[error("continuation cursor is invalid")]
     InvalidCursor,
+    #[error("catalogue resource was not found")]
     NotFound,
+    #[error("media was not found")]
     MediaNotFound,
+    #[error("catalogue is unavailable")]
     Unavailable,
 }
 
@@ -488,7 +496,7 @@ fn map_details_error(error: crate::seerr::Error) -> Error {
 struct SurfaceBuilder<'a> {
     surface: Surface,
     language: Option<&'a str>,
-    local_movies: HashMap<i64, LocalCopy>,
+    local_movies: Arc<HashMap<TmdbId, LocalCopy>>,
     sections: Vec<CatalogueSection>,
     issues: Vec<CatalogueIssue>,
 }
@@ -498,13 +506,13 @@ impl<'a> SurfaceBuilder<'a> {
         Self {
             surface,
             language,
-            local_movies: HashMap::new(),
+            local_movies: Arc::new(HashMap::new()),
             sections: Vec::new(),
             issues: Vec::new(),
         }
     }
 
-    fn local_movies(&mut self, result: crate::jellyfin::Result<HashMap<i64, LocalCopy>>) {
+    fn local_movies(&mut self, result: crate::jellyfin::Result<Arc<HashMap<TmdbId, LocalCopy>>>) {
         self.local_movies = unwrap_local_movies(result, &mut self.issues);
     }
 
@@ -706,20 +714,20 @@ impl Collection {
     }
 }
 
-fn popular_movies_query(page: u32, language: Option<String>) -> DiscoverMoviesQuery {
+fn popular_movies_query(page: u32, language: Option<&str>) -> DiscoverMoviesQuery {
     DiscoverMoviesQuery {
         page: Some(page),
         sort_by: Some(POPULARITY_DESCENDING.into()),
-        language,
+        language: language.map(str::to_owned),
         ..DiscoverMoviesQuery::default()
     }
 }
 
-fn popular_series_query(page: u32, language: Option<String>) -> DiscoverSeriesQuery {
+fn popular_series_query(page: u32, language: Option<&str>) -> DiscoverSeriesQuery {
     DiscoverSeriesQuery {
         page: Some(page),
         sort_by: Some(POPULARITY_DESCENDING.into()),
-        language,
+        language: language.map(str::to_owned),
         ..DiscoverSeriesQuery::default()
     }
 }
@@ -727,24 +735,24 @@ fn popular_series_query(page: u32, language: Option<String>) -> DiscoverSeriesQu
 fn trending_query(
     media_type: TrendingMediaType,
     page: u32,
-    language: Option<String>,
+    language: Option<&str>,
 ) -> TrendingQuery {
     TrendingQuery {
         page: Some(page),
         media_type: Some(media_type),
         time_window: Some(TimeWindow::Week),
-        language,
+        language: language.map(str::to_owned),
     }
 }
 
 fn unwrap_local_movies(
-    result: crate::jellyfin::Result<HashMap<i64, LocalCopy>>,
+    result: crate::jellyfin::Result<Arc<HashMap<TmdbId, LocalCopy>>>,
     issues: &mut Vec<CatalogueIssue>,
-) -> HashMap<i64, LocalCopy> {
+) -> Arc<HashMap<TmdbId, LocalCopy>> {
     result.unwrap_or_else(|error| {
         tracing::warn!(%error, "Jellyfin catalogue enrichment is unavailable");
         issues.push(CatalogueIssue::upstream(Integration::Jellyfin, None));
-        HashMap::new()
+        Arc::new(HashMap::new())
     })
 }
 

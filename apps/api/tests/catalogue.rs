@@ -233,7 +233,7 @@ async fn movie_details_expose_runtime_for_catalogue_card_enrichment() {
         .await
         .expect("read movie details");
     let movie: MovieDetailsResponse = serde_json::from_slice(&body).expect("decode movie details");
-    assert_eq!(movie.tmdb_id, 42);
+    assert_eq!(movie.tmdb_id.get(), 42);
     assert_eq!(movie.runtime_minutes, Some(124));
 }
 
@@ -355,7 +355,7 @@ async fn serves_series_seasons_and_episodes_as_reel_media() {
     let season = details
         .seasons
         .iter()
-        .find(|season| season.season_number > 0 && season.episode_count.unwrap_or(0) > 0)
+        .find(|season| season.season_number.is_regular() && season.episode_count.unwrap_or(0) > 0)
         .expect("series details should contain a regular season");
 
     let initial_season = details

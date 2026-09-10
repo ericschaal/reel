@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::media::{SeasonNumber, TmdbId};
+
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum MediaType {
@@ -14,7 +16,7 @@ pub enum MediaType {
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct DiscoverResult {
-    pub id: i64,
+    pub id: TmdbId,
     pub media_type: MediaType,
     pub title: Option<String>,
     pub original_title: Option<String>,
@@ -48,7 +50,7 @@ impl DiscoverResult {
 #[serde(rename_all = "camelCase")]
 pub struct MediaInfo {
     pub id: i64,
-    pub tmdb_id: Option<i64>,
+    pub tmdb_id: Option<TmdbId>,
     pub tvdb_id: Option<i64>,
     pub media_type: Option<MediaType>,
     pub status: Option<u8>,
@@ -198,7 +200,7 @@ pub struct SearchQuery {
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct MovieDetails {
-    pub id: i64,
+    pub id: TmdbId,
     pub imdb_id: Option<String>,
     pub title: String,
     pub original_title: Option<String>,
@@ -218,7 +220,7 @@ pub struct MovieDetails {
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SeriesDetails {
-    pub id: i64,
+    pub id: TmdbId,
     pub name: String,
     pub original_name: Option<String>,
     pub overview: Option<String>,
@@ -242,9 +244,9 @@ pub struct SeriesDetails {
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct Season {
-    pub id: i64,
+    pub id: TmdbId,
     pub name: String,
-    pub season_number: i32,
+    pub season_number: SeasonNumber,
     pub episode_count: Option<u32>,
     pub air_date: Option<String>,
     pub poster_path: Option<String>,
@@ -254,9 +256,9 @@ pub struct Season {
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SeasonDetails {
-    pub id: i64,
+    pub id: TmdbId,
     pub name: String,
-    pub season_number: i32,
+    pub season_number: SeasonNumber,
     pub air_date: Option<String>,
     pub poster_path: Option<String>,
     pub overview: Option<String>,
@@ -267,10 +269,10 @@ pub struct SeasonDetails {
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct EpisodeDetails {
-    pub id: i64,
+    pub id: TmdbId,
     pub name: String,
     pub episode_number: i32,
-    pub season_number: i32,
+    pub season_number: SeasonNumber,
     pub air_date: Option<String>,
     pub overview: Option<String>,
     pub still_path: Option<String>,

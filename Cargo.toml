@@ -6,6 +6,16 @@ resolver = "3"
 version = "0.1.0"
 edition = "2024"
 
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+correctness = { level = "deny", priority = -1 }
+suspicious = { level = "warn", priority = -1 }
+style = { level = "warn", priority = -1 }
+complexity = { level = "warn", priority = -1 }
+perf = { level = "warn", priority = -1 }
+
 [workspace.dependencies]
 serde = "1.0"
 serde_json = "1.0"
@@ -19,3 +29,4 @@ percent-encoding = "2.3"
 tracing = "0.1"
 tracing-subscriber = "0.3"
 base64 = "0.22"
+thiserror = "2.0"

@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use crate::{
     jellyfin::{Item, ItemType, ItemsQuery, Jellyfin},
+    media::{SeasonNumber, TmdbId},
     seerr::{DiscoverResult, MediaType, MovieDetails, SeasonDetails, SeriesDetails},
 };
 
@@ -14,7 +15,7 @@ const TMDB_IMAGE_BASE_URL: &str = "https://image.tmdb.org/t/p";
 
 pub(super) async fn local_movies(
     jellyfin: &Jellyfin,
-) -> crate::jellyfin::Result<HashMap<i64, LocalCopy>> {
+) -> crate::jellyfin::Result<HashMap<TmdbId, LocalCopy>> {
     let response = jellyfin
         .items(&ItemsQuery {
             include_item_types: vec![ItemType::Movie],
@@ -31,7 +32,7 @@ pub(super) async fn local_movies(
                 .iter()
                 .find(|(provider, _)| provider.eq_ignore_ascii_case("tmdb"))?
                 .1
-                .parse()
+                .parse::<TmdbId>()
                 .ok()?;
             Some((
                 tmdb_id,
@@ -51,8 +52,8 @@ pub(super) struct LocalEpisode {
 
 pub(super) async fn local_episodes(
     jellyfin: &Jellyfin,
-    tmdb_id: i64,
-    season_number: i32,
+    tmdb_id: TmdbId,
+    season_number: SeasonNumber,
 ) -> crate::jellyfin::Result<HashMap<i32, LocalEpisode>> {
     let series = jellyfin
         .items(&ItemsQuery {
@@ -73,7 +74,7 @@ pub(super) async fn local_episodes(
         .await?
         .items
         .into_iter()
-        .find(|season| season.index_number == Some(season_number));
+        .find(|season| season.index_number == Some(season_number.get()));
     let Some(season) = season else {
         return Ok(HashMap::new());
     };
@@ -109,7 +110,7 @@ fn provider_id<'a>(item: &'a Item, provider: &str) -> Option<&'a str> {
 
 pub(super) fn items(
     items: Vec<DiscoverResult>,
-    local_movies: &HashMap<i64, LocalCopy>,
+    local_movies: &HashMap<TmdbId, LocalCopy>,
 ) -> Vec<CatalogueItem> {
     items
         .into_iter()
@@ -153,10 +154,10 @@ pub(super) fn normalize_series_details(details: SeriesDetails) -> SeriesDetailsR
     }
 }
 
-pub(super) fn initial_season_number(seasons: &[SeasonSummary]) -> Option<i32> {
+pub(super) fn initial_season_number(seasons: &[SeasonSummary]) -> Option<SeasonNumber> {
     seasons
         .iter()
-        .find(|season| season.season_number > 0 && season.episode_count.unwrap_or(0) > 0)
+        .find(|season| season.season_number.is_regular() && season.episode_count.unwrap_or(0) > 0)
         .or_else(|| {
             seasons
                 .iter()
@@ -187,7 +188,7 @@ pub(super) fn normalize_movie_details(
 }
 
 pub(super) fn normalize_season_details(
-    series_tmdb_id: i64,
+    series_tmdb_id: TmdbId,
     details: SeasonDetails,
     mut local_episodes: HashMap<i32, LocalEpisode>,
     issues: Vec<CatalogueIssue>,
@@ -226,7 +227,7 @@ pub(super) fn normalize_season_details(
 
 fn normalize(
     item: DiscoverResult,
-    local_movies: &HashMap<i64, LocalCopy>,
+    local_movies: &HashMap<TmdbId, LocalCopy>,
 ) -> Option<CatalogueItem> {
     let kind = match item.media_type {
         MediaType::Movie => MediaKind::Movie,
@@ -281,12 +282,20 @@ mod tests {
     use super::*;
     use crate::seerr::EpisodeDetails;
 
+    fn tmdb_id(value: i64) -> TmdbId {
+        TmdbId::try_from(value).expect("test TMDb IDs are positive")
+    }
+
+    fn season_number(value: i32) -> SeasonNumber {
+        SeasonNumber::try_from(value).expect("test season numbers are non-negative")
+    }
+
     #[test]
     fn selects_the_first_populated_regular_season_before_specials() {
         let seasons = vec![
             SeasonSummary {
                 id: "specials".into(),
-                season_number: 0,
+                season_number: season_number(0),
                 title: "Specials".into(),
                 overview: None,
                 air_date: None,
@@ -295,7 +304,7 @@ mod tests {
             },
             SeasonSummary {
                 id: "empty".into(),
-                season_number: 1,
+                season_number: season_number(1),
                 title: "Season 1".into(),
                 overview: None,
                 air_date: None,
@@ -304,7 +313,7 @@ mod tests {
             },
             SeasonSummary {
                 id: "season-two".into(),
-                season_number: 2,
+                season_number: season_number(2),
                 title: "Season 2".into(),
                 overview: None,
                 air_date: None,
@@ -313,23 +322,23 @@ mod tests {
             },
         ];
 
-        assert_eq!(initial_season_number(&seasons), Some(2));
+        assert_eq!(initial_season_number(&seasons), Some(season_number(2)));
     }
 
     #[test]
     fn enriches_the_exact_episode_coordinate_with_its_local_copy() {
         let details = SeasonDetails {
-            id: 20,
+            id: tmdb_id(20),
             name: "Season 2".into(),
-            season_number: 2,
+            season_number: season_number(2),
             air_date: Some("2026-01-01".into()),
             poster_path: None,
             overview: None,
             episodes: vec![EpisodeDetails {
-                id: 201,
+                id: tmdb_id(201),
                 name: "A New Chapter".into(),
                 episode_number: 1,
-                season_number: 2,
+                season_number: season_number(2),
                 air_date: Some("2026-01-01".into()),
                 overview: Some(String::new()),
                 still_path: Some("/still.jpg".into()),
@@ -346,7 +355,7 @@ mod tests {
             },
         )]);
 
-        let season = normalize_season_details(100, details, local_episodes, Vec::new());
+        let season = normalize_season_details(tmdb_id(100), details, local_episodes, Vec::new());
 
         assert_eq!(season.episodes[0].id, "tmdb:episode:201");
         assert_eq!(season.episodes[0].overview, None);

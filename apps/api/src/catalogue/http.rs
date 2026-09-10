@@ -7,6 +7,8 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::media::{SeasonNumber, TmdbId};
+
 use super::{
     Catalogue, CatalogueManifest, CatalogueRailResponse, CatalogueResponse, Collection,
     CollectionResponse, Error, MovieDetailsResponse, SeasonDetailsResponse, SeriesDetailsResponse,
@@ -39,11 +41,9 @@ async fn movie_details(
     Path(tmdb_id): Path<i64>,
     Query(query): Query<CatalogueQuery>,
 ) -> Result<Json<MovieDetailsResponse>, Error> {
-    if tmdb_id <= 0 {
-        return Err(Error::MediaNotFound);
-    }
+    let tmdb_id = TmdbId::try_from(tmdb_id).map_err(|_| Error::MediaNotFound)?;
     catalogue
-        .movie_details(tmdb_id, query.language)
+        .movie_details(tmdb_id, query.language.as_deref())
         .await
         .map(Json)
 }
@@ -63,21 +63,24 @@ async fn discover(
     State(catalogue): State<Catalogue>,
     Query(query): Query<CatalogueQuery>,
 ) -> Result<Json<CatalogueResponse>, Error> {
-    catalogue.discover(query.language).await.map(Json)
+    catalogue
+        .discover(query.language.as_deref())
+        .await
+        .map(Json)
 }
 
 async fn movies(
     State(catalogue): State<Catalogue>,
     Query(query): Query<CatalogueQuery>,
 ) -> Result<Json<CatalogueResponse>, Error> {
-    catalogue.movies(query.language).await.map(Json)
+    catalogue.movies(query.language.as_deref()).await.map(Json)
 }
 
 async fn series(
     State(catalogue): State<Catalogue>,
     Query(query): Query<CatalogueQuery>,
 ) -> Result<Json<CatalogueResponse>, Error> {
-    catalogue.series(query.language).await.map(Json)
+    catalogue.series(query.language.as_deref()).await.map(Json)
 }
 
 async fn series_details(
@@ -85,11 +88,9 @@ async fn series_details(
     Path(tmdb_id): Path<i64>,
     Query(query): Query<CatalogueQuery>,
 ) -> Result<Json<SeriesDetailsResponse>, Error> {
-    if tmdb_id <= 0 {
-        return Err(Error::MediaNotFound);
-    }
+    let tmdb_id = TmdbId::try_from(tmdb_id).map_err(|_| Error::MediaNotFound)?;
     catalogue
-        .series_details(tmdb_id, query.language)
+        .series_details(tmdb_id, query.language.as_deref())
         .await
         .map(Json)
 }
@@ -99,11 +100,10 @@ async fn season_details(
     Path((tmdb_id, season_number)): Path<(i64, i32)>,
     Query(query): Query<CatalogueQuery>,
 ) -> Result<Json<SeasonDetailsResponse>, Error> {
-    if tmdb_id <= 0 || season_number < 0 {
-        return Err(Error::MediaNotFound);
-    }
+    let tmdb_id = TmdbId::try_from(tmdb_id).map_err(|_| Error::MediaNotFound)?;
+    let season_number = SeasonNumber::try_from(season_number).map_err(|_| Error::MediaNotFound)?;
     catalogue
-        .season_details(tmdb_id, season_number, query.language)
+        .season_details(tmdb_id, season_number, query.language.as_deref())
         .await
         .map(Json)
 }
@@ -124,7 +124,7 @@ async fn rail(
 ) -> Result<Json<CatalogueRailResponse>, Error> {
     let surface = parse_surface(&surface).ok_or(Error::NotFound)?;
     catalogue
-        .rail(surface, &rail, query.language)
+        .rail(surface, &rail, query.language.as_deref())
         .await
         .map(Json)
 }
@@ -136,7 +136,11 @@ async fn collection(
 ) -> Result<Json<CollectionResponse>, Error> {
     let collection = Collection::named(&collection).ok_or(Error::NotFound)?;
     catalogue
-        .collection(collection, query.language, query.cursor)
+        .collection(
+            collection,
+            query.language.as_deref(),
+            query.cursor.as_deref(),
+        )
         .await
         .map(Json)
 }
@@ -148,7 +152,11 @@ async fn category_collection(
 ) -> Result<Json<CollectionResponse>, Error> {
     let collection = Collection::category(&collection, category_id).ok_or(Error::NotFound)?;
     catalogue
-        .collection(collection, query.language, query.cursor)
+        .collection(
+            collection,
+            query.language.as_deref(),
+            query.cursor.as_deref(),
+        )
         .await
         .map(Json)
 }

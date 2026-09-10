@@ -1,10 +1,11 @@
-use std::{error::Error as StdError, fmt};
+use std::fmt;
 
 use reqwest::{
     Client as HttpClient, Response, StatusCode, Url,
     header::{HeaderMap, InvalidHeaderValue},
 };
 use serde::{Serialize, de::DeserializeOwned};
+use thiserror::Error as ThisError;
 
 const MAX_ERROR_BODY_LENGTH: usize = 8 * 1024;
 
@@ -23,52 +24,35 @@ impl fmt::Display for Integration {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, ThisError)]
 pub enum ConfigurationError {
-    InvalidBaseUrl(url::ParseError),
-    InvalidAuthenticationHeader(InvalidHeaderValue),
+    #[error("invalid base URL: {0}")]
+    InvalidBaseUrl(#[source] url::ParseError),
+    #[error("invalid authentication header: {0}")]
+    InvalidAuthenticationHeader(#[source] InvalidHeaderValue),
+    #[error("endpoint path must be relative: {0}")]
     InvalidEndpointPath(String),
 }
 
-impl fmt::Display for ConfigurationError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::InvalidBaseUrl(error) => write!(formatter, "invalid base URL: {error}"),
-            Self::InvalidAuthenticationHeader(error) => {
-                write!(formatter, "invalid authentication header: {error}")
-            }
-            Self::InvalidEndpointPath(path) => {
-                write!(formatter, "endpoint path must be relative: {path}")
-            }
-        }
-    }
-}
-
-impl StdError for ConfigurationError {
-    fn source(&self) -> Option<&(dyn StdError + 'static)> {
-        match self {
-            Self::InvalidBaseUrl(error) => Some(error),
-            Self::InvalidAuthenticationHeader(error) => Some(error),
-            Self::InvalidEndpointPath(_) => None,
-        }
-    }
-}
-
-#[derive(Debug)]
+#[derive(Debug, ThisError)]
 pub enum Error {
+    #[error("{integration} configuration failed: {source}")]
     Configuration {
         integration: Integration,
         source: ConfigurationError,
     },
+    #[error("{integration} request failed: {source}")]
     Transport {
         integration: Integration,
         source: reqwest::Error,
     },
+    #[error("{integration} returned {status}{body_suffix}", body_suffix = RejectedBody(.body))]
     Rejected {
         integration: Integration,
         status: StatusCode,
         body: String,
     },
+    #[error("{integration} returned an invalid response: {source}")]
     InvalidResponse {
         integration: Integration,
         source: reqwest::Error,
@@ -94,44 +78,14 @@ impl Error {
     }
 }
 
-impl fmt::Display for Error {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Configuration {
-                integration,
-                source,
-            } => write!(formatter, "{integration} configuration failed: {source}"),
-            Self::Transport {
-                integration,
-                source,
-            } => write!(formatter, "{integration} request failed: {source}"),
-            Self::Rejected {
-                integration,
-                status,
-                body,
-            } if body.is_empty() => write!(formatter, "{integration} returned {status}"),
-            Self::Rejected {
-                integration,
-                status,
-                body,
-            } => write!(formatter, "{integration} returned {status}: {body}"),
-            Self::InvalidResponse {
-                integration,
-                source,
-            } => write!(
-                formatter,
-                "{integration} returned an invalid response: {source}"
-            ),
-        }
-    }
-}
+struct RejectedBody<'a>(&'a str);
 
-impl StdError for Error {
-    fn source(&self) -> Option<&(dyn StdError + 'static)> {
-        match self {
-            Self::Configuration { source, .. } => Some(source),
-            Self::Transport { source, .. } | Self::InvalidResponse { source, .. } => Some(source),
-            Self::Rejected { .. } => None,
+impl fmt::Display for RejectedBody<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.0.is_empty() {
+            Ok(())
+        } else {
+            write!(formatter, ": {}", self.0)
         }
     }
 }

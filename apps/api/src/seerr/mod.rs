@@ -7,7 +7,10 @@ use reqwest::{
 };
 use serde::Serialize;
 
-use crate::integration::{Integration, JsonClient, parse_base_url};
+use crate::{
+    integration::{Integration, JsonClient, parse_base_url},
+    media::{SeasonNumber, TmdbId},
+};
 
 pub use crate::integration::{Error, Result};
 pub use types::*;
@@ -115,6 +118,8 @@ impl Seerr {
     }
 
     pub async fn search(&self, query: &SearchQuery) -> Result<DiscoverResponse> {
+        // Seerr rejects form encoding (`+` for spaces) here and requires every
+        // reserved character in these values to use percent encoding.
         let mut parameters = vec![format!(
             "query={}",
             utf8_percent_encode(&query.query, NON_ALPHANUMERIC)
@@ -134,7 +139,7 @@ impl Seerr {
         self.http.get_url(url).await
     }
 
-    pub async fn movie(&self, tmdb_id: i64, language: Option<&str>) -> Result<MovieDetails> {
+    pub async fn movie(&self, tmdb_id: TmdbId, language: Option<&str>) -> Result<MovieDetails> {
         self.http
             .get_with_query(&format!("movie/{tmdb_id}"), &LanguageQuery { language })
             .await
@@ -142,7 +147,7 @@ impl Seerr {
 
     pub async fn series_details(
         &self,
-        tmdb_id: i64,
+        tmdb_id: TmdbId,
         language: Option<&str>,
     ) -> Result<SeriesDetails> {
         self.http
@@ -152,8 +157,8 @@ impl Seerr {
 
     pub async fn season_details(
         &self,
-        tmdb_id: i64,
-        season_number: i32,
+        tmdb_id: TmdbId,
+        season_number: SeasonNumber,
         language: Option<&str>,
     ) -> Result<SeasonDetails> {
         self.http

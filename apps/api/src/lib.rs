@@ -1,6 +1,7 @@
 pub mod catalogue;
 pub mod integration;
 pub mod jellyfin;
+pub mod media;
 pub mod seerr;
 
 use axum::{Json, Router, routing::get};
