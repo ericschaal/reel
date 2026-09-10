@@ -13,6 +13,11 @@ export type MediaCard = {
   progress?: PlaybackProgress | null;
 };
 
+export type MediaCardFacts = {
+  runtimeMinutes?: number | null;
+  numberOfSeasons?: number | null;
+};
+
 export type PlaybackProgress = {
   positionSeconds: number;
   durationSeconds: number;
@@ -143,7 +148,7 @@ export function reelProxyPathAllowed(path: string) {
   return (
     /^v1\/catalogue\/(?:(?:discover|movies|series)(?:\/manifest|\/rails\/[a-z0-9-]+)?|collections\/[a-z0-9-]+(?:\/[0-9]+)?)$/.test(
       path,
-    ) || /^v1\/titles\/series\/[0-9]+(?:\/seasons\/[0-9]+)?$/.test(path)
+    ) || /^v1\/titles\/(?:movie\/[0-9]+|series\/[0-9]+(?:\/seasons\/[0-9]+)?)$/.test(path)
   );
 }
 

@@ -118,6 +118,20 @@ pub struct LocalCopy {
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct MovieDetailsResponse {
+    pub id: String,
+    pub tmdb_id: i64,
+    pub title: String,
+    pub overview: Option<String>,
+    pub year: Option<i32>,
+    pub rating: Option<f64>,
+    pub runtime_minutes: Option<u32>,
+    pub images: Images,
+    pub local_copy: Option<LocalCopy>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct SeriesDetailsResponse {
     pub id: String,
     pub tmdb_id: i64,

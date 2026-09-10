@@ -2,8 +2,16 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useState } from "react";
-import { type CatalogueItem, collectionHref, titleHref } from "./catalogue";
+import { useEffect, useRef, useState } from "react";
+import {
+  type CatalogueItem,
+  type MediaCard,
+  type MediaCardFacts,
+  collectionHref,
+  titleHref,
+} from "./catalogue";
+
+const factsCache = new Map<string, Promise<MediaCardFacts | null>>();
 
 // Artwork comes from connected services; keep their URLs intact without routing
 // private media hosts through the Next image optimizer.
@@ -60,7 +68,7 @@ export function RatingBadge({
 }: {
   rating: number;
   source?: RatingSource;
-  variant?: "inline" | "chip";
+  variant?: "inline" | "chip" | "overlay";
 }) {
   const rottenTomatoes = source === "rottenTomatoes";
   const value = rottenTomatoes
@@ -69,10 +77,16 @@ export function RatingBadge({
   const chipClass = rottenTomatoes
     ? "border-[#fa320a]/25 bg-[#fa320a]/10"
     : "border-[#01b4e4]/20 bg-[#01b4e4]/8";
+  const badgeClass =
+    variant === "overlay"
+      ? "min-h-6 shrink-0 rounded-full border border-white/15 bg-black/65 px-1.5 py-0.5 text-white shadow-sm backdrop-blur-md"
+      : variant === "chip"
+        ? `min-h-6 rounded-full border px-2 py-0.5 ${chipClass}`
+        : "";
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 font-medium tabular-nums text-ink/90 ${variant === "chip" ? `min-h-6 rounded-md border px-2 py-0.5 ${chipClass}` : ""}`}
+      className={`inline-flex items-center gap-1.5 leading-none font-medium tabular-nums text-ink/90 ${badgeClass}`}
       aria-label={`${rottenTomatoes ? "Rotten Tomatoes" : "TMDB"} rating ${value}`}
     >
       {rottenTomatoes ? (
@@ -91,12 +105,12 @@ export function RatingBadge({
       ) : (
         <span
           aria-hidden="true"
-          className="bg-linear-to-r from-[#90cea1] to-[#01b4e4] bg-clip-text font-mono text-[9px] leading-none font-black tracking-[-0.08em] text-transparent"
+          className="relative top-px bg-linear-to-r from-[#90cea1] to-[#01b4e4] bg-clip-text font-mono text-[9px] leading-none font-black tracking-[-0.08em] text-transparent"
         >
           TMDB
         </span>
       )}
-      <span>{value}</span>
+      <span className="leading-none">{value}</span>
     </span>
   );
 }
@@ -110,6 +124,9 @@ export function CatalogueCard({
   layout?: "poster" | "backdrop";
   priority?: boolean;
 }) {
+  const mediaItem = item.kind === "category" ? null : item;
+  const { facts, cardRef } = useMediaCardFacts(mediaItem);
+
   if (item.kind === "category") {
     const isLogo = item.categoryKind !== "genre";
     return (
@@ -157,6 +174,7 @@ export function CatalogueCard({
   const backdrop = layout === "backdrop";
   return (
     <Link
+      ref={cardRef}
       className="group grid min-w-0 snap-start content-start gap-3 rounded-xl transition-transform duration-300 ease-out hover:z-10 motion-safe:hover:-translate-y-1 motion-safe:hover:scale-[1.035]"
       href={titleHref(item)}
     >
@@ -172,27 +190,114 @@ export function CatalogueCard({
           }
           priority={priority}
         />
+        <span className="absolute top-2.5 left-2.5 text-white/90">
+          <MediaSummaryPill item={item} facts={facts} />
+        </span>
         {item.localCopy ? (
-          <span className="absolute top-2.5 left-2.5 rounded-md bg-emerald-200 px-2 py-1 text-[10px] font-bold tracking-wide text-emerald-950 uppercase">
+          <span className="absolute top-2 right-2 rounded-full bg-emerald-200 px-2 py-1 text-[10px] font-bold tracking-wide text-emerald-950 uppercase shadow-sm">
             In library
           </span>
         ) : null}
+        {item.rating != null ? (
+          <span className="absolute inset-x-0 bottom-0 flex bg-linear-to-t from-black/85 via-black/40 to-transparent px-2 pt-10 pb-2 text-[11px] text-white">
+            <RatingBadge rating={item.rating} variant="overlay" />
+          </span>
+        ) : null}
       </span>
-      <span className="grid min-w-0 content-start gap-2">
+      <span className="grid min-w-0 content-start">
         <strong
           className={`${backdrop ? "line-clamp-1" : "line-clamp-2"} text-sm leading-5 font-semibold tracking-[-0.01em] group-hover:text-accent`}
         >
           {item.title}
         </strong>
-        <span className="flex min-h-6 flex-wrap items-center gap-1.5 text-xs text-muted">
-          <span className="inline-flex min-h-6 items-center rounded-md border border-white/8 bg-white/4 px-2 py-0.5 tabular-nums">
-            {item.year ?? "Year unavailable"}
-          </span>
-          {item.rating != null ? (
-            <RatingBadge rating={item.rating} variant="chip" />
-          ) : null}
-        </span>
       </span>
     </Link>
   );
+}
+
+function MediaSummaryPill({
+  item,
+  facts,
+}: {
+  item: MediaCard;
+  facts: MediaCardFacts | null;
+}) {
+  const label =
+    item.kind === "movie"
+      ? formatRuntime(facts?.runtimeMinutes)
+      : formatSeasons(facts?.numberOfSeasons);
+  return (
+    <span className="inline-flex min-h-7 min-w-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-white/12 bg-black/55 px-2.5 py-1 text-xs leading-none font-semibold tabular-nums shadow-[0_2px_8px_#0005] backdrop-blur-md">
+      <span>{item.year ?? "Year unavailable"}</span>
+      {label ? (
+        <>
+          <span className="h-3 w-px bg-white/20" aria-hidden="true" />
+          {item.kind === "movie" ? <ClockIcon /> : <SeasonsIcon />}
+          <span>{label}</span>
+        </>
+      ) : null}
+    </span>
+  );
+}
+
+function useMediaCardFacts(item: MediaCard | null) {
+  const cardRef = useRef<HTMLAnchorElement>(null);
+  const [facts, setFacts] = useState<MediaCardFacts | null>(null);
+
+  useEffect(() => {
+    const card = cardRef.current;
+    if (!item || !card) return;
+    let active = true;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        observer.disconnect();
+        const key = `${item.kind}:${item.tmdbId}`;
+        let request = factsCache.get(key);
+        if (!request) {
+          request = fetch(
+            `/api/reel/v1/titles/${item.kind}/${item.tmdbId}?language=en`,
+          )
+            .then((response) =>
+              response.ok
+                ? (response.json() as Promise<MediaCardFacts>)
+                : null,
+            )
+            .catch(() => null);
+          factsCache.set(key, request);
+        }
+        void request.then((nextFacts) => {
+          if (active) setFacts(nextFacts);
+        });
+      },
+      { rootMargin: "160px" },
+    );
+    observer.observe(card);
+    return () => {
+      active = false;
+      observer.disconnect();
+    };
+  }, [item]);
+
+  return { facts, cardRef };
+}
+
+function formatRuntime(minutes: number | null | undefined) {
+  if (!minutes || minutes <= 0) return null;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return hours ? `${hours}h ${remainder ? `${remainder}m` : ""}`.trim() : `${minutes}m`;
+}
+
+function formatSeasons(count: number | null | undefined) {
+  if (!count || count <= 0) return null;
+  return `${count} season${count === 1 ? "" : "s"}`;
+}
+
+function ClockIcon() {
+  return <svg aria-hidden="true" className="size-3.5 fill-none stroke-current" viewBox="0 0 16 16" strokeWidth="1.6"><circle cx="8" cy="8" r="5.5" /><path d="M8 4.5V8l2.4 1.4" /></svg>;
+}
+
+function SeasonsIcon() {
+  return <svg aria-hidden="true" className="size-3.5 fill-none stroke-current" viewBox="0 0 16 16" strokeWidth="1.6"><rect x="3" y="3" width="9" height="9" rx="1.5" /><path d="M5 1.5h7.5a2 2 0 0 1 2 2V11" /></svg>;
 }

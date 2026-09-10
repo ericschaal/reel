@@ -2,12 +2,12 @@ use std::collections::HashMap;
 
 use crate::{
     jellyfin::{Item, ItemType, ItemsQuery, Jellyfin},
-    seerr::{DiscoverResult, MediaType, SeasonDetails, SeriesDetails},
+    seerr::{DiscoverResult, MediaType, MovieDetails, SeasonDetails, SeriesDetails},
 };
 
 use super::{
     CatalogueIssue, CatalogueItem, Episode, Images, LocalCopy, MediaCard, MediaKind,
-    SeasonDetailsResponse, SeasonSummary, SeriesDetailsResponse,
+    MovieDetailsResponse, SeasonDetailsResponse, SeasonSummary, SeriesDetailsResponse,
 };
 
 const TMDB_IMAGE_BASE_URL: &str = "https://image.tmdb.org/t/p";
@@ -148,6 +148,26 @@ pub(super) fn normalize_series_details(details: SeriesDetails) -> SeriesDetailsR
                 poster: season.poster_path.map(|path| image_url("w500", path)),
             })
             .collect(),
+    }
+}
+
+pub(super) fn normalize_movie_details(
+    details: MovieDetails,
+    local_copy: Option<LocalCopy>,
+) -> MovieDetailsResponse {
+    MovieDetailsResponse {
+        id: format!("tmdb:movie:{}", details.id),
+        tmdb_id: details.id,
+        title: details.title,
+        overview: details.overview,
+        year: year(details.release_date.as_deref()),
+        rating: details.vote_average,
+        runtime_minutes: details.runtime,
+        images: Images {
+            poster: details.poster_path.map(|path| image_url("w500", path)),
+            backdrop: details.backdrop_path.map(backdrop_url),
+        },
+        local_copy,
     }
 }
 

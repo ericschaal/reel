@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import Link from "next/link";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import type {
   Episode,
   MediaCard,
@@ -9,7 +10,7 @@ import type {
   SeriesDetails,
 } from "../../../catalogue";
 import { Artwork, RatingBadge } from "../../../media-card";
-import { buttonClass, primaryButtonClass, Eyebrow, glassClass, Header, pageGutter } from "../../../ui";
+import { buttonClass, primaryButtonClass, Eyebrow, glassClass, pageGutter } from "../../../ui";
 
 type Source = {
   id: string;
@@ -86,6 +87,7 @@ export function TitleDetail({
       null,
   );
   const [episodeDialog, setEpisodeDialog] = useState<Episode | null>(null);
+  const seriesScrollPosition = useRef(0);
   const localCopy =
     media.kind === "series" ? nextEpisode?.localCopy : media.localCopy;
   const [selectedSource, setSelectedSource] = useState("stremio-1");
@@ -165,6 +167,22 @@ export function TitleDetail({
     }
   }
 
+  function openEpisode(episode: Episode) {
+    if (!episodeDialog) seriesScrollPosition.current = window.scrollY;
+    setEpisodeDialog(episode);
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }
+
+  function closeEpisode() {
+    setEpisodeDialog(null);
+    requestAnimationFrame(() =>
+      window.scrollTo({
+        top: seriesScrollPosition.current,
+        behavior: "instant",
+      }),
+    );
+  }
+
   if (activePlayback) {
     return (
       <PlayerView
@@ -193,9 +211,16 @@ export function TitleDetail({
       <EpisodeDetailView
         media={media}
         episode={episodeDialog}
+        series={series}
+        season={season}
+        seasonNumber={seasonNumber}
+        seasonLoading={seasonLoading}
+        seasonError={seasonError}
         selectedSource={selected}
         progress={progressForSelection(media.progress, episodeDialog)}
-        onBack={() => setEpisodeDialog(null)}
+        onBack={closeEpisode}
+        onSelectSeason={(number) => void selectSeason(number)}
+        onOpenEpisode={openEpisode}
         onPlayLocal={(resumeSeconds) =>
           playLocal(resumeSeconds, episodeDialog)
         }
@@ -220,7 +245,7 @@ export function TitleDetail({
         <div className="absolute inset-0 bg-linear-to-r from-background via-background/50 to-transparent" />
         <div className="absolute inset-0 bg-linear-to-t from-background via-background/30 to-transparent" />
       </div>
-      <Header preview />
+      <NavigationHeader href="/" label="Back to catalogue" />
       <main
         id="main-content"
         className={`mx-auto max-w-[1400px] pt-10 pb-16 sm:pt-16 lg:pt-20 ${pageGutter}`}
@@ -243,7 +268,7 @@ export function TitleDetail({
               {media.rating != null ? (
                 <>
                   <span aria-hidden="true">·</span>
-                  <RatingBadge rating={media.rating} />
+                  <RatingBadge rating={media.rating} variant="chip" />
                 </>
               ) : null}
               {media.kind === "movie" && media.localCopy ? (
@@ -299,7 +324,7 @@ export function TitleDetail({
             loading={seasonLoading}
             error={seasonError}
             onSelectSeason={(number) => void selectSeason(number)}
-            onOpenEpisode={setEpisodeDialog}
+            onOpenEpisode={openEpisode}
             onDownloadEpisode={(episode) =>
               setDownloadScope({ kind: "episode", episode })
             }
@@ -341,24 +366,12 @@ function SeriesHierarchy({
             Episodes
           </h2>
         </div>
-        {series?.seasons.length ? (
-          <label className="grid gap-1.5 text-xs text-muted">
-            Season
-            <select
-              className="min-h-11 rounded-full border border-line bg-panel px-4 text-sm font-semibold text-ink"
-              value={seasonNumber ?? ""}
-              disabled={loading}
-              onChange={(event) => onSelectSeason(Number(event.target.value))}
-            >
-              {series.seasons.map((item) => (
-                <option key={item.id} value={item.seasonNumber}>
-                  {item.seasonNumber === 0 ? "Specials" : item.title}
-                  {item.episodeCount != null ? ` · ${item.episodeCount}` : ""}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : null}
+        <SeasonSelector
+          series={series}
+          seasonNumber={seasonNumber}
+          loading={loading}
+          onSelect={onSelectSeason}
+        />
       </div>
 
       {error ? (
@@ -416,15 +429,7 @@ function SeriesHierarchy({
                       {episode.title}
                     </strong>
                   </span>
-                  <span className="text-xs text-muted">
-                    {episode.airDate ?? "Air date unavailable"}
-                    {episode.runtimeMinutes != null
-                      ? ` · ${episode.runtimeMinutes} min`
-                      : ""}
-                    {episode.rating != null
-                      ? ` · ★ ${episode.rating.toFixed(1)}`
-                      : ""}
-                  </span>
+                  <EpisodeMetadata episode={episode} />
                   {episode.overview ? (
                     <span className="line-clamp-2 text-sm leading-6 text-ink/75">
                       {episode.overview}
@@ -451,6 +456,94 @@ function SeriesHierarchy({
         </div>
       )}
     </section>
+  );
+}
+
+function SeasonSelector({
+  series,
+  seasonNumber,
+  loading,
+  onSelect,
+}: {
+  series: SeriesDetails | null;
+  seasonNumber: number | null;
+  loading: boolean;
+  onSelect: (seasonNumber: number) => void;
+}) {
+  if (!series?.seasons.length) return null;
+  return (
+    <label className="grid gap-1.5 text-xs text-muted">
+      Season
+      <select
+        className="min-h-11 rounded-full border border-line bg-panel px-4 text-sm font-semibold text-ink"
+        value={seasonNumber ?? ""}
+        disabled={loading}
+        onChange={(event) => onSelect(Number(event.target.value))}
+      >
+        {series.seasons.map((item) => (
+          <option key={item.id} value={item.seasonNumber}>
+            {item.seasonNumber === 0 ? "Specials" : item.title}
+            {item.episodeCount != null ? ` · ${item.episodeCount}` : ""}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function EpisodeMetadata({ episode }: { episode: Episode }) {
+  return (
+    <span className="flex flex-wrap items-center gap-2 text-xs text-muted">
+      <span>{episode.airDate ?? "Air date unavailable"}</span>
+      {episode.runtimeMinutes != null ? (
+        <><span aria-hidden="true">·</span><span>{episode.runtimeMinutes} min</span></>
+      ) : null}
+      {episode.rating != null ? (
+        <><span aria-hidden="true">·</span><RatingBadge rating={episode.rating} variant="chip" /></>
+      ) : null}
+    </span>
+  );
+}
+
+function EpisodeRail({
+  episodes,
+  currentEpisodeId,
+  onOpenEpisode,
+}: {
+  episodes: Episode[];
+  currentEpisodeId: string;
+  onOpenEpisode: (episode: Episode) => void;
+}) {
+  return (
+    <div className="mt-6 flex snap-x snap-proximity gap-4 overflow-x-auto pb-5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      {episodes.map((item) => {
+        const current = item.id === currentEpisodeId;
+        return (
+          <button
+            key={item.id}
+            type="button"
+            aria-current={current ? "true" : undefined}
+            onClick={() => onOpenEpisode(item)}
+            className={`group grid w-[78vw] max-w-xs shrink-0 snap-start content-start gap-3 rounded-2xl border p-3 text-left transition-[transform,border-color,background-color] motion-safe:hover:-translate-y-1 ${current ? "border-accent bg-accent/7" : "border-line bg-panel/70 hover:border-white/40 hover:bg-white/5"}`}
+          >
+            <span className="relative block aspect-video overflow-hidden rounded-xl bg-panel">
+              <Artwork src={item.still} sizes="320px" />
+              <span className="absolute inset-x-2 top-2 flex items-start justify-between gap-2">
+                {current ? <span className="rounded-full bg-accent px-2.5 py-1 text-[10px] font-bold text-background uppercase">Now viewing</span> : <span />}
+                {item.localCopy ? <span className="rounded-full bg-emerald-200 px-2.5 py-1 text-[10px] font-bold text-emerald-950 uppercase">In library</span> : null}
+              </span>
+            </span>
+            <span className="grid min-w-0 gap-2 px-1 pb-1">
+              <span className="flex items-baseline gap-2">
+                <span className="font-mono text-xs text-accent">E{item.episodeNumber}</span>
+                <strong className="truncate text-sm font-semibold group-hover:text-accent">{item.title}</strong>
+              </span>
+              <EpisodeMetadata episode={item} />
+            </span>
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
@@ -525,11 +618,38 @@ function FullScreenShell({
 }) {
   return (
     <div className="min-h-dvh bg-[radial-gradient(ellipse_at_50%_0%,#233336_0%,transparent_48%)]">
-      <Header>
-        <button type="button" className="inline-flex min-h-11 items-center gap-2 text-sm text-muted hover:text-ink" onClick={onBack}>← {backLabel}</button>
-      </Header>
+      <NavigationHeader onBack={onBack} label={backLabel} />
       {children}
     </div>
+  );
+}
+
+function NavigationHeader({
+  label,
+  href,
+  onBack,
+}: {
+  label: string;
+  href?: string;
+  onBack?: () => void;
+}) {
+  const backClass =
+    "inline-flex min-h-12 items-center gap-3 rounded-full border border-white/15 bg-white/8 pr-5 pl-3 text-sm font-semibold text-ink shadow-lg transition-colors hover:border-accent/60 hover:bg-white/12";
+  const content = (
+    <>
+      <span className="grid size-7 place-items-center rounded-full bg-white/10"><BackIcon /></span>
+      {label}
+    </>
+  );
+  return (
+    <header className={`sticky top-0 z-40 flex min-h-20 items-center justify-between border-b border-white/10 bg-background/85 py-3 backdrop-blur-2xl ${pageGutter}`}>
+      {href ? (
+        <Link className={backClass} href={href}>{content}</Link>
+      ) : (
+        <button type="button" className={backClass} onClick={onBack}>{content}</button>
+      )}
+      <Link className="text-sm font-extrabold tracking-[0.28em] text-accent" href="/" aria-label="Reel home">REEL</Link>
+    </header>
   );
 }
 
@@ -632,18 +752,32 @@ function PlaybackHint({
 function EpisodeDetailView({
   media,
   episode,
+  series,
+  season,
+  seasonNumber,
+  seasonLoading,
+  seasonError,
   selectedSource,
   progress,
   onBack,
+  onSelectSeason,
+  onOpenEpisode,
   onPlayLocal,
   onStream,
   onDownload,
 }: {
   media: MediaCard;
   episode: Episode;
+  series: SeriesDetails | null;
+  season: SeasonDetails | null;
+  seasonNumber: number | null;
+  seasonLoading: boolean;
+  seasonError: string | null;
   selectedSource: Source;
   progress: PlaybackProgress | null;
   onBack: () => void;
+  onSelectSeason: (seasonNumber: number) => void;
+  onOpenEpisode: (episode: Episode) => void;
   onPlayLocal: (resumeSeconds?: number) => void;
   onStream: (source: Source, resumeSeconds?: number) => void;
   onDownload: () => void;
@@ -667,7 +801,7 @@ function EpisodeDetailView({
 
   return (
     <FullScreenShell onBack={onBack} backLabel="Back to episodes">
-      <main className={`mx-auto grid min-h-[calc(100dvh-5rem)] max-w-[1400px] content-center py-10 sm:py-16 ${pageGutter}`}>
+      <main className={`mx-auto max-w-[1400px] py-10 sm:py-16 ${pageGutter}`}>
         <section className="grid items-center gap-8 lg:grid-cols-[minmax(0,1.3fr)_minmax(360px,0.7fr)] lg:gap-14">
           <div className="relative aspect-video overflow-hidden rounded-2xl border border-line bg-panel shadow-2xl">
             <Artwork src={episode.still} sizes="(max-width: 1024px) 100vw, 65vw" priority />
@@ -677,11 +811,7 @@ function EpisodeDetailView({
             <Eyebrow>Season {episode.seasonNumber} · Episode {episode.episodeNumber}</Eyebrow>
             <p className="mb-3 text-sm font-semibold text-muted">{media.title}</p>
             <h1 className="text-4xl leading-tight font-semibold tracking-[-0.04em] sm:text-5xl">{episode.title}</h1>
-            <p className="mt-5 text-sm text-muted">
-              {episode.airDate ?? "Air date unavailable"}
-              {episode.runtimeMinutes != null ? ` · ${episode.runtimeMinutes} min` : ""}
-              {episode.rating != null ? ` · ★ ${episode.rating.toFixed(1)}` : ""}
-            </p>
+            <div className="mt-5"><EpisodeMetadata episode={episode} /></div>
             <p className="mt-5 text-base leading-7 text-ink/75">{episode.overview || `An episode of ${media.title}.`}</p>
             <div className="mt-7 flex flex-wrap items-stretch gap-3">
               <PlaybackControl
@@ -701,6 +831,26 @@ function EpisodeDetailView({
             </div>
             <PlaybackHint progress={progress} lastSourceAvailable={lastSourceAvailable} resumeSourceLabel={resumeSourceLabel} />
           </div>
+        </section>
+        <section className="mt-14 border-t border-white/10 pt-10 sm:mt-20 sm:pt-12" aria-labelledby="season-episodes-heading">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <Eyebrow>Keep watching</Eyebrow>
+              <h2 id="season-episodes-heading" className="text-2xl font-semibold tracking-tight sm:text-3xl">Episodes</h2>
+            </div>
+            <SeasonSelector series={series} seasonNumber={seasonNumber} loading={seasonLoading} onSelect={onSelectSeason} />
+          </div>
+          {seasonError ? (
+            <div className={`mt-6 rounded-2xl p-5 text-sm text-muted ${glassClass}`}>{seasonError}</div>
+          ) : seasonLoading ? (
+            <div className="mt-6 flex gap-4 overflow-hidden" role="status" aria-label="Loading episodes">
+              {[0, 1, 2].map((item) => <div key={item} className="aspect-video w-[78vw] max-w-xs shrink-0 rounded-xl bg-white/5 motion-safe:animate-pulse" />)}
+            </div>
+          ) : season?.episodes.length ? (
+            <EpisodeRail episodes={season.episodes} currentEpisodeId={episode.id} onOpenEpisode={onOpenEpisode} />
+          ) : (
+            <div className={`mt-6 rounded-2xl p-5 text-sm text-muted ${glassClass}`}>No episodes are available for this season yet.</div>
+          )}
         </section>
       </main>
     </FullScreenShell>
@@ -867,6 +1017,10 @@ function formatTime(seconds: number) {
 
 function PlayIcon() {
   return <svg aria-hidden="true" className="size-4 fill-current" viewBox="0 0 16 16"><path d="M3.5 2.2a1 1 0 0 1 1.5-.86l9 5.8a1 1 0 0 1 0 1.72l-9 5.8a1 1 0 0 1-1.5-.86V2.2Z" /></svg>;
+}
+
+function BackIcon() {
+  return <svg aria-hidden="true" className="size-4 fill-none stroke-current" viewBox="0 0 16 16" strokeWidth="1.8"><path d="m9.5 3.5-4.5 4.5 4.5 4.5M5.5 8H13" /></svg>;
 }
 
 function DownloadIcon() {

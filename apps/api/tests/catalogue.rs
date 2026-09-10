@@ -17,8 +17,8 @@ use axum::{
 use reel_api::{
     app,
     catalogue::{
-        Catalogue, CatalogueItem, CatalogueResponse, CollectionResponse, SeasonDetailsResponse,
-        SeriesDetailsResponse, Surface,
+        Catalogue, CatalogueItem, CatalogueResponse, CollectionResponse, MovieDetailsResponse,
+        SeasonDetailsResponse, SeriesDetailsResponse, Surface,
     },
     jellyfin::Jellyfin,
     seerr::Seerr,
@@ -201,6 +201,62 @@ async fn fast_rail_finishes_without_waiting_for_slow_rail_and_shares_availabilit
     assert_eq!(trending.status(), StatusCode::OK);
     assert_eq!(popular.status(), StatusCode::OK);
     assert_eq!(jellyfin_requests.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn movie_details_expose_runtime_for_catalogue_card_enrichment() {
+    let upstream = Router::new()
+        .route("/api/v1/movie/{tmdb_id}", route_get(mock_movie_details))
+        .route("/Items", route_get(mock_jellyfin_movies_without_counter));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind mock upstream");
+    let address = listener.local_addr().expect("mock upstream address");
+    let server = tokio::spawn(async move {
+        axum::serve(listener, upstream)
+            .await
+            .expect("serve mock upstream");
+    });
+    let base_url = format!("http://{address}");
+    let response = get(
+        app(Catalogue::new(
+            Seerr::new(&base_url, "unused").expect("create mock Seerr client"),
+            Jellyfin::new(&base_url, "unused").expect("create mock Jellyfin client"),
+        )),
+        "/v1/titles/movie/42?language=en",
+    )
+    .await;
+    server.abort();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = to_bytes(response.into_body(), 1024 * 1024)
+        .await
+        .expect("read movie details");
+    let movie: MovieDetailsResponse = serde_json::from_slice(&body).expect("decode movie details");
+    assert_eq!(movie.tmdb_id, 42);
+    assert_eq!(movie.runtime_minutes, Some(124));
+}
+
+async fn mock_movie_details() -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "id": 42,
+        "imdbId": null,
+        "title": "Mock Movie",
+        "originalTitle": "Mock Movie",
+        "overview": "A movie used to verify runtime enrichment.",
+        "posterPath": null,
+        "backdropPath": null,
+        "releaseDate": "2026-01-02",
+        "runtime": 124,
+        "voteAverage": 7.5,
+        "genres": [],
+        "productionCompanies": [],
+        "mediaInfo": null
+    }))
+}
+
+async fn mock_jellyfin_movies_without_counter() -> Json<serde_json::Value> {
+    Json(serde_json::json!({ "Items": [], "TotalRecordCount": 0 }))
 }
 
 async fn mock_trending() -> Json<serde_json::Value> {

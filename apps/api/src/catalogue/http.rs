@@ -9,7 +9,8 @@ use serde::{Deserialize, Serialize};
 
 use super::{
     Catalogue, CatalogueManifest, CatalogueRailResponse, CatalogueResponse, Collection,
-    CollectionResponse, Error, SeasonDetailsResponse, SeriesDetailsResponse, Surface,
+    CollectionResponse, Error, MovieDetailsResponse, SeasonDetailsResponse, SeriesDetailsResponse,
+    Surface,
 };
 
 pub(super) fn router(catalogue: Catalogue) -> Router {
@@ -19,6 +20,7 @@ pub(super) fn router(catalogue: Catalogue) -> Router {
         .route("/v1/catalogue/series", get(series))
         .route("/v1/catalogue/{surface}/manifest", get(manifest))
         .route("/v1/catalogue/{surface}/rails/{rail}", get(rail))
+        .route("/v1/titles/movie/{tmdb_id}", get(movie_details))
         .route("/v1/titles/series/{tmdb_id}", get(series_details))
         .route(
             "/v1/titles/series/{tmdb_id}/seasons/{season_number}",
@@ -30,6 +32,20 @@ pub(super) fn router(catalogue: Catalogue) -> Router {
             get(category_collection),
         )
         .with_state(catalogue)
+}
+
+async fn movie_details(
+    State(catalogue): State<Catalogue>,
+    Path(tmdb_id): Path<i64>,
+    Query(query): Query<CatalogueQuery>,
+) -> Result<Json<MovieDetailsResponse>, Error> {
+    if tmdb_id <= 0 {
+        return Err(Error::MediaNotFound);
+    }
+    catalogue
+        .movie_details(tmdb_id, query.language)
+        .await
+        .map(Json)
 }
 
 #[derive(Debug, Deserialize)]

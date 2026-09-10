@@ -29,19 +29,17 @@ test("category artwork keeps an explicit non-zero sizing chain", async () => {
   );
 });
 
-test("media metadata grid packs its rows instead of stretching", async () => {
+test("media facts and rating occupy separate artwork zones", async () => {
   const source = await readFile(
     new URL("../app/media-card.tsx", import.meta.url),
     "utf8",
   );
   assert.match(
     source,
-    /<span className="grid min-w-0 content-start gap-2">/,
+    /absolute top-2\.5 left-2\.5 text-white/,
   );
-  assert.doesNotMatch(
-    source,
-    /backdrop \? "line-clamp-1" : "line-clamp-2 min-h-10"/,
-  );
+  assert.match(source, /absolute inset-x-0 bottom-0 flex bg-linear-to-t/);
+  assert.match(source, /variant="overlay"/);
 });
 
 test("collection links preserve opaque cursors and language", () => {
@@ -160,12 +158,14 @@ test("series selects the first populated regular season before specials", () => 
   assert.equal(firstRegularSeason(series)?.seasonNumber, 2);
 });
 
-test("proxy permits only supported series hierarchy routes", () => {
+test("proxy permits only supported title detail routes", () => {
+  assert.equal(reelProxyPathAllowed("v1/titles/movie/123"), true);
   assert.equal(reelProxyPathAllowed("v1/titles/series/123"), true);
   assert.equal(
     reelProxyPathAllowed("v1/titles/series/123/seasons/2"),
     true,
   );
   assert.equal(reelProxyPathAllowed("v1/titles/series/abc"), false);
+  assert.equal(reelProxyPathAllowed("v1/titles/movie/abc"), false);
   assert.equal(reelProxyPathAllowed("v1/titles/series/123/episodes"), false);
 });

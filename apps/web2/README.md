@@ -44,3 +44,6 @@ Catalogue surfaces are URL-driven (`/?surface=movies` or `/?surface=series`).
 Collection pages support automatic pagination and a manual Load more control.
 Menus use shared Tailwind glass styles with a dark fallback for browsers without
 backdrop filtering. Rails retain touch and keyboard scrolling with hidden scrollbars.
+Visible media cards progressively enrich their compact metadata pills from the
+title endpoints: movie runtime for films and season count for series. Requests
+are cached by media identity so repeated titles across rails share one lookup.

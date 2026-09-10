@@ -126,6 +126,20 @@ impl Catalogue {
         Ok(media::normalize_series_details(details))
     }
 
+    pub async fn movie_details(
+        &self,
+        tmdb_id: i64,
+        language: Option<String>,
+    ) -> Result<MovieDetailsResponse, Error> {
+        let (details, local_movies) = tokio::join!(
+            self.seerr.movie(tmdb_id, language.as_deref()),
+            self.local_movies(),
+        );
+        let details = details.map_err(map_details_error)?;
+        let local_copy = local_movies.unwrap_or_default().get(&tmdb_id).cloned();
+        Ok(media::normalize_movie_details(details, local_copy))
+    }
+
     pub async fn season_details(
         &self,
         tmdb_id: i64,
