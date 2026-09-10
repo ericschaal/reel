@@ -1,13 +1,15 @@
 "use client";
 
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import {
   type CatalogueItem,
+  type CollectionResponse,
   collectionProxyHref,
 } from "../catalogue";
 import { CatalogueCard } from "../media-card";
 import { collectionQuery } from "../reel-query";
+import { useIntersectionObserver } from "../use-intersection-observer";
 import {
   buttonClass,
   CardSkeletons,
@@ -17,9 +19,12 @@ import {
   pageGutter,
 } from "../ui";
 
+const emptyPages: CollectionResponse[] = [];
+
 export function CollectionBrowser({ initialHref }: { initialHref: string }) {
   const valid = Boolean(collectionProxyHref(initialHref));
-  const sentinelRef = useRef<HTMLDivElement>(null);
+  const { ref: sentinelRef, isIntersecting } =
+    useIntersectionObserver<HTMLDivElement>({ rootMargin: "300px" });
   const {
     data,
     isPending,
@@ -32,7 +37,7 @@ export function CollectionBrowser({ initialHref }: { initialHref: string }) {
     ...collectionQuery(initialHref),
     enabled: valid,
   });
-  const pages = useMemo(() => data?.pages ?? [], [data?.pages]);
+  const pages = data?.pages ?? emptyPages;
   const title = pages[0]?.title ?? "Collection";
   const total = pages[0]?.totalResults ?? 0;
   const next = pages.at(-1)?.next ?? null;
@@ -56,17 +61,8 @@ export function CollectionBrowser({ initialHref }: { initialHref: string }) {
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   useEffect(() => {
-    const sentinel = sentinelRef.current;
-    if (!sentinel || !next || loading || error) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) loadMore();
-      },
-      { rootMargin: "300px" },
-    );
-    observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, [loadMore, next, loading, error]);
+    if (isIntersecting && next && !loading && !error) loadMore();
+  }, [isIntersecting, loadMore, next, loading, error]);
 
   return (
     <div className="min-h-dvh bg-[radial-gradient(ellipse_at_15%_0%,#233336_0%,transparent_40%)]">

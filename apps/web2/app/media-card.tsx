@@ -2,7 +2,8 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
 import {
   type CatalogueItem,
   type MediaCard,
@@ -10,8 +11,8 @@ import {
   collectionHref,
   titleHref,
 } from "./catalogue";
-
-const factsCache = new Map<string, Promise<MediaCardFacts | null>>();
+import { mediaCardFactsQuery } from "./reel-query";
+import { useIntersectionObserver } from "./use-intersection-observer";
 
 // Artwork comes from connected services; keep their URLs intact without routing
 // private media hosts through the Next image optimizer.
@@ -26,10 +27,28 @@ export function Artwork({
   priority?: boolean;
   fit?: "cover" | "contain";
 }) {
+  return src ? (
+    <ArtworkImage key={src} src={src} sizes={sizes} priority={priority} fit={fit} />
+  ) : (
+    <ArtworkFallback />
+  );
+}
+
+function ArtworkImage({
+  src,
+  sizes,
+  priority,
+  fit,
+}: {
+  src: string;
+  sizes: string;
+  priority: boolean;
+  fit: "cover" | "contain";
+}) {
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
 
-  return src && !failed ? (
+  return !failed ? (
     <>
       <span
         aria-hidden="true"
@@ -49,7 +68,11 @@ export function Artwork({
         className={`${fit === "contain" ? "object-contain" : "object-cover"} transition-opacity duration-300 ${loaded ? "opacity-100" : "opacity-0"}`}
       />
     </>
-  ) : (
+  ) : <ArtworkFallback />;
+}
+
+function ArtworkFallback() {
+  return (
     <span
       aria-hidden="true"
       className="absolute inset-0 grid place-items-center bg-linear-to-br from-slate-700 to-panel text-6xl font-bold text-accent/40"
@@ -241,45 +264,18 @@ function MediaSummaryPill({
 }
 
 function useMediaCardFacts(item: MediaCard | null) {
-  const cardRef = useRef<HTMLAnchorElement>(null);
-  const [facts, setFacts] = useState<MediaCardFacts | null>(null);
+  const { ref: cardRef, isIntersecting } =
+    useIntersectionObserver<HTMLAnchorElement>({
+      enabled: Boolean(item),
+      once: true,
+      rootMargin: "160px",
+    });
+  const query = useQuery({
+    ...mediaCardFactsQuery(item?.kind ?? "movie", item?.tmdbId ?? 0),
+    enabled: Boolean(item) && isIntersecting,
+  });
 
-  useEffect(() => {
-    const card = cardRef.current;
-    if (!item || !card) return;
-    let active = true;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (!entries.some((entry) => entry.isIntersecting)) return;
-        observer.disconnect();
-        const key = `${item.kind}:${item.tmdbId}`;
-        let request = factsCache.get(key);
-        if (!request) {
-          request = fetch(
-            `/api/reel/v1/titles/${item.kind}/${item.tmdbId}?language=en`,
-          )
-            .then((response) =>
-              response.ok
-                ? (response.json() as Promise<MediaCardFacts>)
-                : null,
-            )
-            .catch(() => null);
-          factsCache.set(key, request);
-        }
-        void request.then((nextFacts) => {
-          if (active) setFacts(nextFacts);
-        });
-      },
-      { rootMargin: "160px" },
-    );
-    observer.observe(card);
-    return () => {
-      active = false;
-      observer.disconnect();
-    };
-  }, [item]);
-
-  return { facts, cardRef };
+  return { facts: query.data ?? null, cardRef };
 }
 
 function formatRuntime(minutes: number | null | undefined) {

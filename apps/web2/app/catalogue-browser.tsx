@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
+  type CatalogueManifest,
   type Surface,
   collectionHref,
 } from "./catalogue";
@@ -25,15 +26,11 @@ const surfaces: { id: Surface; label: string }[] = [
   { id: "series", label: "Series" },
 ];
 const rowClass = `grid grid-flow-col gap-4 overflow-x-auto overscroll-x-contain scroll-px-5 sm:scroll-px-8 lg:scroll-px-12 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden snap-x snap-proximity pt-3 pb-7 sm:gap-5 ${pageGutter}`;
+type ManifestRail = CatalogueManifest["rails"][number];
 
 export function CatalogueBrowser({ surface }: { surface: Surface }) {
   const manifestQuery = useQuery(catalogueManifestQuery(surface));
   const manifest = manifestQuery.data;
-  const railQueries = useQueries({
-    queries: (manifest?.rails ?? []).map((rail) =>
-      catalogueRailQuery(rail.itemsHref),
-    ),
-  });
 
   return (
     <div className="min-h-dvh bg-[radial-gradient(ellipse_at_40%_0%,#233336_0%,transparent_45%)]">
@@ -67,72 +64,13 @@ export function CatalogueBrowser({ surface }: { surface: Surface }) {
         </section>
         {manifest ? (
           <div className="grid gap-10 sm:gap-14">
-            {manifest.rails.map((rail, sectionIndex) => {
-              const state = railQueries[sectionIndex];
-              const section = state.data?.section;
-              return (
-                <section
-                  className="min-w-0"
-                  key={rail.id}
-                  aria-labelledby={`section-${rail.id}`}
-                  aria-busy={!section && state.isPending}
-                >
-                  <div
-                    className={`mb-3 flex items-center justify-between gap-4 ${pageGutter}`}
-                  >
-                    <h2
-                      id={`section-${rail.id}`}
-                      className="text-xl font-semibold tracking-tight sm:text-2xl"
-                    >
-                      {rail.title}
-                    </h2>
-                    {section?.href ? (
-                      <Link
-                        className="inline-flex min-h-11 shrink-0 items-center gap-2 text-sm text-muted hover:text-accent"
-                        href={collectionHref(section.href)}
-                        aria-label={`View all ${section.title}`}
-                      >
-                        View all <span aria-hidden="true">→</span>
-                      </Link>
-                    ) : null}
-                  </div>
-                  <div
-                    className={
-                      rail.layout === "backdrop"
-                        ? `${rowClass} auto-cols-[82%] sm:auto-cols-[340px] lg:auto-cols-[420px]`
-                        : `${rowClass} auto-cols-[44%] sm:auto-cols-[180px] lg:auto-cols-[210px]`
-                    }
-                  >
-                    {section ? (
-                      section.items.map((item, itemIndex) => (
-                        <CatalogueCard
-                          key={`${item.kind}-${item.id}`}
-                          item={item}
-                          layout={section.layout}
-                          priority={sectionIndex === 0 && itemIndex < 2}
-                        />
-                      ))
-                    ) : state.isError ? (
-                      <div className="col-span-2 grid min-h-40 content-center gap-3 rounded-xl border border-line bg-panel/60 p-5 text-sm text-muted">
-                        <p>This rail is unavailable.</p>
-                        <button
-                          className={`${buttonClass} w-fit`}
-                          type="button"
-                          onClick={() => void state.refetch()}
-                        >
-                          Try again
-                        </button>
-                      </div>
-                    ) : (
-                      <CardSkeletons
-                        count={Math.min(rail.itemCountHint, 6)}
-                        layout={rail.layout}
-                      />
-                    )}
-                  </div>
-                </section>
-              );
-            })}
+            {manifest.rails.map((rail, sectionIndex) => (
+              <CatalogueRail
+                key={rail.id}
+                rail={rail}
+                prioritizeArtwork={sectionIndex === 0}
+              />
+            ))}
             {manifest.rails.length === 0 ? (
               <EmptyState title="Nothing to show yet">
                 Check back soon for movies and series.
@@ -177,5 +115,78 @@ export function CatalogueBrowser({ surface }: { surface: Surface }) {
         )}
       </main>
     </div>
+  );
+}
+
+function CatalogueRail({
+  rail,
+  prioritizeArtwork,
+}: {
+  rail: ManifestRail;
+  prioritizeArtwork: boolean;
+}) {
+  const query = useQuery(catalogueRailQuery(rail.itemsHref));
+  const section = query.data?.section;
+
+  return (
+    <section
+      className="min-w-0"
+      aria-labelledby={`section-${rail.id}`}
+      aria-busy={!section && query.isPending}
+    >
+      <div
+        className={`mb-3 flex items-center justify-between gap-4 ${pageGutter}`}
+      >
+        <h2
+          id={`section-${rail.id}`}
+          className="text-xl font-semibold tracking-tight sm:text-2xl"
+        >
+          {rail.title}
+        </h2>
+        {section?.href ? (
+          <Link
+            className="inline-flex min-h-11 shrink-0 items-center gap-2 text-sm text-muted hover:text-accent"
+            href={collectionHref(section.href)}
+            aria-label={`View all ${section.title}`}
+          >
+            View all <span aria-hidden="true">→</span>
+          </Link>
+        ) : null}
+      </div>
+      <div
+        className={
+          rail.layout === "backdrop"
+            ? `${rowClass} auto-cols-[82%] sm:auto-cols-[340px] lg:auto-cols-[420px]`
+            : `${rowClass} auto-cols-[44%] sm:auto-cols-[180px] lg:auto-cols-[210px]`
+        }
+      >
+        {section ? (
+          section.items.map((item, itemIndex) => (
+            <CatalogueCard
+              key={`${item.kind}-${item.id}`}
+              item={item}
+              layout={section.layout}
+              priority={prioritizeArtwork && itemIndex < 2}
+            />
+          ))
+        ) : query.isError ? (
+          <div className="col-span-2 grid min-h-40 content-center gap-3 rounded-xl border border-line bg-panel/60 p-5 text-sm text-muted">
+            <p>This rail is unavailable.</p>
+            <button
+              className={`${buttonClass} w-fit`}
+              type="button"
+              onClick={() => void query.refetch()}
+            >
+              Try again
+            </button>
+          </div>
+        ) : (
+          <CardSkeletons
+            count={Math.min(rail.itemCountHint, 6)}
+            layout={rail.layout}
+          />
+        )}
+      </div>
+    </section>
   );
 }

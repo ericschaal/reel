@@ -5,6 +5,8 @@ import {
   type CatalogueManifest,
   type CatalogueRailResponse,
   type CollectionResponse,
+  type MediaCard,
+  type MediaCardFacts,
   type SeasonDetails,
   type Surface,
 } from "./catalogue";
@@ -38,6 +40,21 @@ export function catalogueRailQuery(itemsHref: string) {
       if (!url) throw new Error("This catalogue rail has an invalid URL.");
       return reelJson<CatalogueRailResponse>(url, signal);
     },
+    staleTime: catalogueStaleTime,
+  });
+}
+
+export function mediaCardFactsQuery(
+  kind: MediaCard["kind"],
+  tmdbId: number,
+) {
+  return queryOptions({
+    queryKey: ["reel", "title", kind, tmdbId, "facts", "en"] as const,
+    queryFn: ({ signal }) =>
+      reelJson<MediaCardFacts>(
+        `/api/reel/v1/titles/${kind}/${tmdbId}?language=en`,
+        signal,
+      ),
     staleTime: catalogueStaleTime,
   });
 }

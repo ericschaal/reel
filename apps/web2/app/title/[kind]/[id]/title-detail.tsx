@@ -65,6 +65,12 @@ const jellyfinSource: Source = {
   detail: "In library",
   available: true,
 };
+const airDateFormatter = new Intl.DateTimeFormat("en", {
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+  timeZone: "UTC",
+});
 
 export function TitleDetail({
   media,
@@ -93,7 +99,10 @@ export function TitleDetail({
       ? "This season could not be loaded. Please try again."
       : null);
   const [nextEpisode] = useState(
-    initialSeason?.episodes.find((episode) => episode.id === media.progress?.episodeId) ??
+    () =>
+      initialSeason?.episodes.find(
+        (episode) => episode.id === media.progress?.episodeId,
+      ) ??
       initialSeason?.episodes[0] ??
       null,
   );
@@ -513,12 +522,9 @@ function formatAirDate(value: string) {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (!match) return value;
   const [, year, month, day] = match;
-  return new Intl.DateTimeFormat("en", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-    timeZone: "UTC",
-  }).format(new Date(Date.UTC(Number(year), Number(month) - 1, Number(day))));
+  return airDateFormatter.format(
+    new Date(Date.UTC(Number(year), Number(month) - 1, Number(day))),
+  );
 }
 
 function CalendarIcon() {
