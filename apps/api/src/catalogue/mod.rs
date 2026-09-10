@@ -2,6 +2,7 @@ mod curated;
 mod http;
 mod media;
 mod navigation;
+mod titles;
 mod types;
 
 use std::{
@@ -36,6 +37,7 @@ pub struct Catalogue {
     seerr: Seerr,
     jellyfin: Jellyfin,
     local_movies: Arc<LocalMoviesCache>,
+    titles: Arc<titles::TitleCache>,
 }
 
 struct LocalMoviesCache {
@@ -54,6 +56,7 @@ impl Catalogue {
         Self {
             seerr,
             jellyfin,
+            titles: Arc::new(titles::TitleCache::new()),
             local_movies: Arc::new(LocalMoviesCache {
                 value: Mutex::new(None),
                 refresh: Semaphore::new(1),
@@ -83,7 +86,7 @@ impl Catalogue {
         builder.curated(CategoryKind::Studio, STUDIOS);
         builder.genres(MediaKind::Series, series_genres);
         builder.curated(CategoryKind::Network, NETWORKS);
-        builder.finish()
+        builder.finish(self).await
     }
 
     pub async fn movies(&self, language: Option<&str>) -> Result<CatalogueResponse, Error> {
@@ -102,7 +105,7 @@ impl Catalogue {
         builder.media(Collection::PopularMovies, popular);
         builder.genres(MediaKind::Movie, genres);
         builder.curated(CategoryKind::Studio, STUDIOS);
-        builder.finish()
+        builder.finish(self).await
     }
 
     pub async fn series(&self, language: Option<&str>) -> Result<CatalogueResponse, Error> {
@@ -121,7 +124,7 @@ impl Catalogue {
         builder.media(Collection::PopularSeries, popular);
         builder.genres(MediaKind::Series, genres);
         builder.curated(CategoryKind::Network, NETWORKS);
-        builder.finish()
+        builder.finish(self).await
     }
 
     pub async fn series_details(
@@ -129,12 +132,25 @@ impl Catalogue {
         tmdb_id: TmdbId,
         language: Option<&str>,
     ) -> Result<SeriesDetailsResponse, Error> {
-        let details = self
-            .seerr
-            .series_details(tmdb_id, language)
-            .await
-            .map_err(map_details_error)?;
-        let mut response = media::normalize_series_details(details);
+        let metadata = self
+            .title_metadata(titles::TitleKey {
+                kind: MediaKind::Series,
+                id: tmdb_id,
+                language: language.map(str::to_owned),
+            })
+            .await?;
+        let titles::TitleMetadata::Series(details) = metadata.as_ref() else {
+            unreachable!("series metadata key")
+        };
+        Ok(media::normalize_series_details(details.clone()))
+    }
+
+    pub async fn series_details_with_initial_season(
+        &self,
+        tmdb_id: TmdbId,
+        language: Option<&str>,
+    ) -> Result<SeriesDetailsResponse, Error> {
+        let mut response = self.series_details(tmdb_id, language).await?;
         let first_season_number = media::initial_season_number(&response.seasons);
 
         if let Some(season_number) = first_season_number {
@@ -161,11 +177,26 @@ impl Catalogue {
         tmdb_id: TmdbId,
         language: Option<&str>,
     ) -> Result<MovieDetailsResponse, Error> {
-        let (details, local_movies) =
-            tokio::join!(self.seerr.movie(tmdb_id, language), self.local_movies(),);
-        let details = details.map_err(map_details_error)?;
-        let local_copy = local_movies.unwrap_or_default().get(&tmdb_id).cloned();
-        Ok(media::normalize_movie_details(details, local_copy))
+        let (metadata, local_movies) = tokio::join!(
+            self.title_metadata(titles::TitleKey {
+                kind: MediaKind::Movie,
+                id: tmdb_id,
+                language: language.map(str::to_owned),
+            }),
+            self.local_movies(),
+        );
+        let metadata = metadata?;
+        let titles::TitleMetadata::Movie(details) = metadata.as_ref() else {
+            unreachable!("movie metadata key")
+        };
+        let mut issues = Vec::new();
+        let local_copy = unwrap_local_movies(local_movies, &mut issues)
+            .get(&tmdb_id)
+            .cloned();
+        let availability = Availability::for_copy(local_copy.is_some(), issues.is_empty());
+        let mut response = media::normalize_movie_details(details.clone(), availability);
+        response.issues = issues;
+        Ok(response)
     }
 
     pub async fn season_details(
@@ -223,10 +254,18 @@ impl Catalogue {
         let next = (response.page < response.total_pages)
             .then(|| navigation::next_page(&collection, language, response.page.saturating_add(1)));
 
+        let title = collection_title(&response).unwrap_or_else(|| collection.title().into());
+        let mut items = media::items(response.results, &local_movies, issues.is_empty());
+        if !self.enrich_cards(&mut items, language).await {
+            issues.push(CatalogueIssue::upstream(
+                Integration::Seerr,
+                Some(&collection.id()),
+            ));
+        }
         Ok(CollectionResponse {
             id: collection.id(),
-            title: collection_title(&response).unwrap_or_else(|| collection.title().into()),
-            items: media::items(response.results, &local_movies),
+            title,
+            items,
             total_results: response.total_results,
             next,
             issues,
@@ -303,7 +342,7 @@ impl Catalogue {
             _ => return Err(Error::NotFound),
         }
 
-        let response = builder.finish()?;
+        let response = builder.finish(self).await?;
         let section = response
             .sections
             .into_iter()
@@ -469,6 +508,8 @@ pub fn router(catalogue: Catalogue) -> Router {
 
 #[derive(Debug, ThisError)]
 pub enum Error {
+    #[error("query parameters are invalid")]
+    InvalidQuery,
     #[error("continuation cursor is invalid")]
     InvalidCursor,
     #[error("catalogue resource was not found")]
@@ -523,7 +564,14 @@ impl<'a> SurfaceBuilder<'a> {
                 title: collection.title().into(),
                 layout: SectionLayout::Poster,
                 href: Some(navigation::first_page(&collection, self.language)),
-                items: media::items(response.results, &self.local_movies),
+                items: media::items(
+                    response.results,
+                    &self.local_movies,
+                    !self
+                        .issues
+                        .iter()
+                        .any(|issue| issue.source == CatalogueSource::Jellyfin),
+                ),
             }),
             Err(error) => self.seerr_issue(collection.id(), error),
         }
@@ -616,7 +664,18 @@ impl<'a> SurfaceBuilder<'a> {
         ));
     }
 
-    fn finish(self) -> Result<CatalogueResponse, Error> {
+    async fn finish(mut self, catalogue: &Catalogue) -> Result<CatalogueResponse, Error> {
+        for section in &mut self.sections {
+            if !catalogue
+                .enrich_cards(&mut section.items, self.language)
+                .await
+            {
+                self.issues.push(CatalogueIssue::upstream(
+                    Integration::Seerr,
+                    Some(&section.id),
+                ));
+            }
+        }
         if self.sections.is_empty() {
             Err(Error::Unavailable)
         } else {

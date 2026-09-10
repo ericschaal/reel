@@ -348,8 +348,11 @@ async fn serves_series_seasons_and_episodes_as_reel_media() {
         })
         .expect("series catalogue should contain a series");
 
-    let details: SeriesDetailsResponse =
-        get_json(&format!("/v1/titles/series/{}?language=en", series.tmdb_id)).await;
+    let details: SeriesDetailsResponse = get_json(&format!(
+        "/v1/titles/series/{}?language=en&include=initialSeason",
+        series.tmdb_id
+    ))
+    .await;
     assert_eq!(details.tmdb_id, series.tmdb_id);
     assert_eq!(details.id, series.id);
     let season = details

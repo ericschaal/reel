@@ -1,21 +1,38 @@
 export type Surface = "discover" | "movies" | "series";
 
 export type MediaCard = {
+  runtimeMinutes: number | null;
+  numberOfSeasons: number | null;
   kind: "movie" | "series";
   id: string;
   tmdbId: number;
   title: string;
-  overview: string | null;
   year: number | null;
   rating: number | null;
   images: { poster: string | null; backdrop: string | null };
-  localCopy: { jellyfinItemId: string } | null;
+  availability: Availability;
+  // Existing client prototype state; not returned by the catalogue API.
   progress?: PlaybackProgress | null;
 };
 
-export type MediaCardFacts = {
-  runtimeMinutes?: number | null;
-  numberOfSeasons?: number | null;
+export type TitleMedia = Omit<MediaCard, "runtimeMinutes" | "numberOfSeasons"> & {
+  overview: string | null;
+};
+
+export type Availability = "local" | "notLocal" | "unknown" | "episodeBased";
+export type CatalogueIssue = {
+  source: "jellyfin" | "seerr";
+  sectionId: string | null;
+  code: "upstreamUnavailable";
+};
+
+export type TitleSummary =
+  | { kind: "movie"; id: string; runtimeMinutes: number | null }
+  | { kind: "series"; id: string; numberOfSeasons: number | null };
+
+export type TitleSummariesResponse = {
+  items: TitleSummary[];
+  issues: Array<{ id: string; code: "media_not_found" | "catalogue_unavailable" }>;
 };
 
 export type PlaybackProgress = {
@@ -41,6 +58,7 @@ export type CatalogueItem = MediaCard | CategoryCard;
 
 export type CatalogueResponse = {
   surface: Surface;
+  issues: CatalogueIssue[];
   sections: Array<{
     id: string;
     title: string;
@@ -65,14 +83,11 @@ export type CatalogueManifest = {
 
 export type CatalogueRailResponse = {
   section: CatalogueSection;
-  issues: Array<{
-    source: "jellyfin" | "seerr";
-    sectionId: string | null;
-    code: "upstreamUnavailable";
-  }>;
+  issues: CatalogueIssue[];
 };
 
 export type CollectionResponse = {
+  issues: CatalogueIssue[];
   id: string;
   title: string;
   items: CatalogueItem[];
@@ -81,6 +96,8 @@ export type CollectionResponse = {
 };
 
 export type SeriesDetails = {
+  kind: "series";
+  availability: "episodeBased";
   id: string;
   tmdbId: number;
   title: string;
@@ -91,15 +108,13 @@ export type SeriesDetails = {
   numberOfEpisodes: number | null;
   images: { poster: string | null; backdrop: string | null };
   seasons: SeasonSummary[];
-  issues: Array<{
-    source: "jellyfin" | "seerr";
-    sectionId: string | null;
-    code: "upstreamUnavailable";
-  }>;
+  issues: CatalogueIssue[];
   initialSeason: SeasonDetails | null;
 };
 
-export type MovieDetails = Omit<MediaCard, "kind" | "progress"> & {
+export type MovieDetails = Omit<TitleMedia, "kind" | "progress"> & {
+  kind: "movie";
+  issues: CatalogueIssue[];
   runtimeMinutes: number | null;
 };
 
@@ -122,11 +137,7 @@ export type SeasonDetails = {
   airDate: string | null;
   poster: string | null;
   episodes: Episode[];
-  issues: Array<{
-    source: "jellyfin" | "seerr";
-    sectionId: string | null;
-    code: "upstreamUnavailable";
-  }>;
+  issues: CatalogueIssue[];
 };
 
 export type Episode = {
@@ -140,11 +151,12 @@ export type Episode = {
   rating: number | null;
   still: string | null;
   runtimeMinutes: number | null;
-  localCopy: { jellyfinItemId: string } | null;
+  availability: Availability;
 };
 
 export function reelProxyPathAllowed(path: string) {
   return (
+    path === "v1/titles/summaries" ||
     /^v1\/catalogue\/(?:(?:discover|movies|series)(?:\/manifest|\/rails\/[a-z0-9-]+)?|collections\/[a-z0-9-]+(?:\/[0-9]+)?)$/.test(
       path,
     ) || /^v1\/titles\/(?:movie\/[0-9]+|series\/[0-9]+(?:\/seasons\/[0-9]+)?)$/.test(path)

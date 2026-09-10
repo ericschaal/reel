@@ -98,7 +98,7 @@ export function SeriesHierarchy({
               />
               <span className="pointer-events-none relative block aspect-video overflow-hidden rounded-lg bg-panel">
                 <Artwork src={episode.still} sizes="180px" />
-                {episode.localCopy ? (
+                {(episode.availability === "local") ? (
                   <span className="absolute top-2 left-2 rounded-md bg-emerald-200 px-2 py-1 text-[10px] font-bold tracking-wide text-emerald-950 uppercase">
                     In library
                   </span>
@@ -120,7 +120,7 @@ export function SeriesHierarchy({
                   </span>
                 ) : null}
               </span>
-              {!episode.localCopy ? (
+              {!(episode.availability === "local") ? (
                 <button
                   type="button"
                   className="relative z-10 inline-flex min-h-11 items-center justify-center gap-2 self-center rounded-full border border-line px-4 text-xs font-semibold text-muted hover:border-white/40 hover:bg-white/10 hover:text-ink"
@@ -217,7 +217,7 @@ export function EpisodeRail({
             type="button"
             aria-current={current ? "true" : undefined}
             onClick={() => onOpenEpisode(item)}
-            className={`group grid w-[78vw] max-w-xs shrink-0 snap-start content-start gap-3 rounded-2xl border p-3 text-left transition-[transform,border-color,background-color] motion-safe:hover:-translate-y-1 ${current ? "border-accent bg-accent/7" : "border-line bg-panel/70 hover:border-white/40 hover:bg-white/5"}`}
+            className={`group grid min-w-0 w-[78vw] max-w-xs shrink-0 snap-start content-start gap-3 overflow-hidden rounded-2xl border p-3 text-left transition-[transform,border-color,background-color] motion-safe:hover:-translate-y-1 ${current ? "border-accent bg-accent/7" : "border-line bg-panel/70 hover:border-white/40 hover:bg-white/5"}`}
           >
             <span className="relative block aspect-video overflow-hidden rounded-xl bg-panel">
               <Artwork src={item.still} sizes="320px" />
@@ -229,7 +229,7 @@ export function EpisodeRail({
                 ) : (
                   <span />
                 )}
-                {item.localCopy ? (
+                {item.availability === "local" ? (
                   <span className="rounded-full bg-emerald-200 px-2.5 py-1 text-[10px] font-bold text-emerald-950 uppercase">
                     In library
                   </span>
@@ -237,11 +237,11 @@ export function EpisodeRail({
               </span>
             </span>
             <span className="grid min-w-0 gap-2 px-1 pb-1">
-              <span className="flex items-baseline gap-2">
-                <span className="font-mono text-xs text-accent">
+              <span className="min-w-0 flex items-baseline gap-2">
+                <span className="shrink-0 font-mono text-xs text-accent">
                   E{item.episodeNumber}
                 </span>
-                <strong className="truncate text-sm font-semibold group-hover:text-accent">
+                <strong className="min-w-0 flex-1 truncate text-sm font-semibold group-hover:text-accent">
                   {item.title}
                 </strong>
               </span>

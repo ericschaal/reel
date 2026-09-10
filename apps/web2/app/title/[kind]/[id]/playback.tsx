@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import type { Episode, MediaCard, PlaybackProgress } from "../../../catalogue";
+import type { Episode, TitleMedia, PlaybackProgress } from "../../../catalogue";
 import { Eyebrow, NavigationHeader, primaryButtonClass } from "../../../ui";
 
 export type Source = {
@@ -55,7 +55,7 @@ export function PlayerView({
   playback,
   onBack,
 }: {
-  media: MediaCard;
+  media: TitleMedia;
   playback: ActivePlayback;
   onBack: () => void;
 }) {

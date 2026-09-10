@@ -1,18 +1,18 @@
 use axum::{
     Json, Router,
-    extract::{Path, Query, State},
+    extract::{FromRequestParts, Path, Query as AxumQuery, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::get,
 };
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::media::{SeasonNumber, TmdbId};
 
 use super::{
     Catalogue, CatalogueManifest, CatalogueRailResponse, CatalogueResponse, Collection,
-    CollectionResponse, Error, MovieDetailsResponse, SeasonDetailsResponse, SeriesDetailsResponse,
-    Surface,
+    CollectionResponse, Error, MediaKind, MovieDetailsResponse, SeasonDetailsResponse,
+    SeriesDetailsResponse, Surface, TitleSummariesResponse, TitleSummary, titles::TitleKey,
 };
 
 pub(super) fn router(catalogue: Catalogue) -> Router {
@@ -22,6 +22,7 @@ pub(super) fn router(catalogue: Catalogue) -> Router {
         .route("/v1/catalogue/series", get(series))
         .route("/v1/catalogue/{surface}/manifest", get(manifest))
         .route("/v1/catalogue/{surface}/rails/{rail}", get(rail))
+        .route("/v1/titles/summaries", get(title_summaries))
         .route("/v1/titles/movie/{tmdb_id}", get(movie_details))
         .route("/v1/titles/series/{tmdb_id}", get(series_details))
         .route(
@@ -36,24 +37,125 @@ pub(super) fn router(catalogue: Catalogue) -> Router {
         .with_state(catalogue)
 }
 
+// Keep malformed and unsupported query parameters in the API's JSON error envelope.
+struct Query<T>(T);
+impl<S: Send + Sync, T: DeserializeOwned + Send> FromRequestParts<S> for Query<T> {
+    type Rejection = Error;
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        state: &S,
+    ) -> Result<Self, Error> {
+        AxumQuery::<T>::from_request_parts(parts, state)
+            .await
+            .map(|AxumQuery(value)| Self(value))
+            .map_err(|_| Error::InvalidQuery)
+    }
+}
+
+#[derive(Debug, Default, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+enum TitleView {
+    Summary,
+    #[default]
+    Detail,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum TitleInclude {
+    InitialSeason,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TitleQuery {
+    language: Option<String>,
+    #[serde(default)]
+    view: TitleView,
+    include: Option<TitleInclude>,
+}
+
+#[derive(Serialize)]
+#[serde(untagged)]
+enum TitleResponse {
+    Summary(TitleSummary),
+    Movie(MovieDetailsResponse),
+    Series(Box<SeriesDetailsResponse>),
+}
+
+async fn title_view(
+    catalogue: Catalogue,
+    kind: MediaKind,
+    tmdb_id: i64,
+    query: TitleQuery,
+) -> Result<Json<TitleResponse>, Error> {
+    let tmdb_id = TmdbId::try_from(tmdb_id).map_err(|_| Error::MediaNotFound)?;
+    if query.include.is_some() && (kind != MediaKind::Series || query.view != TitleView::Detail) {
+        return Err(Error::InvalidQuery);
+    }
+    let language = query.language.as_deref();
+    if query.view == TitleView::Summary {
+        let metadata = catalogue
+            .title_metadata(TitleKey {
+                kind,
+                id: tmdb_id,
+                language: query.language,
+            })
+            .await?;
+        return Ok(Json(TitleResponse::Summary(metadata.summary())));
+    }
+    match kind {
+        MediaKind::Movie => catalogue
+            .movie_details(tmdb_id, language)
+            .await
+            .map(TitleResponse::Movie)
+            .map(Json),
+        MediaKind::Series => {
+            let details = if query.include.is_some() {
+                catalogue
+                    .series_details_with_initial_season(tmdb_id, language)
+                    .await?
+            } else {
+                catalogue.series_details(tmdb_id, language).await?
+            };
+            Ok(Json(TitleResponse::Series(Box::new(details))))
+        }
+    }
+}
+
 async fn movie_details(
     State(catalogue): State<Catalogue>,
     Path(tmdb_id): Path<i64>,
-    Query(query): Query<CatalogueQuery>,
-) -> Result<Json<MovieDetailsResponse>, Error> {
-    let tmdb_id = TmdbId::try_from(tmdb_id).map_err(|_| Error::MediaNotFound)?;
+    Query(query): Query<TitleQuery>,
+) -> Result<Json<TitleResponse>, Error> {
+    title_view(catalogue, MediaKind::Movie, tmdb_id, query).await
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SummariesQuery {
+    ids: String,
+    language: Option<String>,
+}
+
+async fn title_summaries(
+    State(catalogue): State<Catalogue>,
+    Query(query): Query<SummariesQuery>,
+) -> Result<Json<TitleSummariesResponse>, Error> {
     catalogue
-        .movie_details(tmdb_id, query.language.as_deref())
+        .title_summaries(&query.ids, query.language.as_deref())
         .await
         .map(Json)
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CatalogueQuery {
     language: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CollectionQuery {
     language: Option<String>,
     cursor: Option<String>,
@@ -86,13 +188,9 @@ async fn series(
 async fn series_details(
     State(catalogue): State<Catalogue>,
     Path(tmdb_id): Path<i64>,
-    Query(query): Query<CatalogueQuery>,
-) -> Result<Json<SeriesDetailsResponse>, Error> {
-    let tmdb_id = TmdbId::try_from(tmdb_id).map_err(|_| Error::MediaNotFound)?;
-    catalogue
-        .series_details(tmdb_id, query.language.as_deref())
-        .await
-        .map(Json)
+    Query(query): Query<TitleQuery>,
+) -> Result<Json<TitleResponse>, Error> {
+    title_view(catalogue, MediaKind::Series, tmdb_id, query).await
 }
 
 async fn season_details(
@@ -173,6 +271,11 @@ fn parse_surface(surface: &str) -> Option<Surface> {
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
         let (status, code, message) = match self {
+            Self::InvalidQuery => (
+                StatusCode::BAD_REQUEST,
+                "invalid_query",
+                "The query parameters are invalid",
+            ),
             Self::InvalidCursor => (
                 StatusCode::BAD_REQUEST,
                 "invalid_cursor",

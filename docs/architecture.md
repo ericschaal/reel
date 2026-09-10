@@ -46,3 +46,12 @@ SQLite, but must not reinterpret a completed download as playable availability.
 
 Playback Resolution remains the next decision area rather than an accepted
 interface.
+
+## Catalogue API read models
+
+The catalogue module owns compact cards, title summaries and title detail views.
+Rails and collections include runtime and season counts directly in their cards.
+Card enrichment, summaries and details share bounded metadata caching, while
+availability is refreshed separately. Episode guides are an
+explicit series detail expansion. The contract and migration notes are in
+[Client API](api.md). Playback and progress remain separate future capabilities.

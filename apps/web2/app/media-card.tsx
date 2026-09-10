@@ -2,17 +2,16 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import {
   type CatalogueItem,
   type MediaCard,
-  type MediaCardFacts,
   collectionHref,
   titleHref,
 } from "./catalogue";
-import { mediaCardFactsQuery } from "./reel-query";
-import { useIntersectionObserver } from "./use-intersection-observer";
+
+const mediaOverlayPillClass =
+  "inline-flex min-h-7 items-center rounded-full border border-white/12 bg-black/55 px-2.5 py-1 text-xs leading-none font-semibold shadow-[0_2px_8px_#0005] backdrop-blur-md";
 
 // Artwork comes from connected services; keep their URLs intact without routing
 // private media hosts through the Next image optimizer.
@@ -147,8 +146,6 @@ export function CatalogueCard({
   layout?: "poster" | "backdrop";
   priority?: boolean;
 }) {
-  const mediaItem = item.kind === "category" ? null : item;
-  const { facts, cardRef } = useMediaCardFacts(mediaItem);
 
   if (item.kind === "category") {
     const isLogo = item.categoryKind !== "genre";
@@ -197,7 +194,6 @@ export function CatalogueCard({
   const backdrop = layout === "backdrop";
   return (
     <Link
-      ref={cardRef}
       className="group grid min-w-0 snap-start content-start gap-3 rounded-xl transition-transform duration-300 ease-out hover:z-10 motion-safe:hover:-translate-y-1 motion-safe:hover:scale-[1.035]"
       href={titleHref(item)}
     >
@@ -214,13 +210,8 @@ export function CatalogueCard({
           priority={priority}
         />
         <span className="absolute top-2.5 left-2.5 text-white/90">
-          <MediaSummaryPill item={item} facts={facts} />
+          <MediaSummaryPill item={item} />
         </span>
-        {item.localCopy ? (
-          <span className="absolute top-2 right-2 rounded-full bg-emerald-200 px-2 py-1 text-[10px] font-bold tracking-wide text-emerald-950 uppercase shadow-sm">
-            In library
-          </span>
-        ) : null}
         {item.rating != null ? (
           <span className="absolute inset-x-0 bottom-0 flex bg-linear-to-t from-black/85 via-black/40 to-transparent px-2 pt-10 pb-2 text-[11px] text-white">
             <RatingBadge rating={item.rating} variant="overlay" />
@@ -240,17 +231,17 @@ export function CatalogueCard({
 
 function MediaSummaryPill({
   item,
-  facts,
 }: {
   item: MediaCard;
-  facts: MediaCardFacts | null;
 }) {
   const label =
     item.kind === "movie"
-      ? formatRuntime(facts?.runtimeMinutes)
-      : formatSeasons(facts?.numberOfSeasons);
+      ? formatRuntime(item.runtimeMinutes)
+      : formatSeasons(item.numberOfSeasons);
   return (
-    <span className="inline-flex min-h-7 min-w-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-white/12 bg-black/55 px-2.5 py-1 text-xs leading-none font-semibold tabular-nums shadow-[0_2px_8px_#0005] backdrop-blur-md">
+    <span
+      className={`min-w-0 gap-1.5 whitespace-nowrap tabular-nums ${mediaOverlayPillClass}`}
+    >
       <span>{item.year ?? "Year unavailable"}</span>
       {label ? (
         <>
@@ -259,23 +250,20 @@ function MediaSummaryPill({
           <span>{label}</span>
         </>
       ) : null}
+      {item.availability === "local" ? (
+        <>
+          <span className="h-3 w-px bg-white/20" aria-hidden="true" />
+          <span
+            className="inline-flex text-accent"
+            role="img"
+            aria-label="In library"
+          >
+            <DownloadIcon />
+          </span>
+        </>
+      ) : null}
     </span>
   );
-}
-
-function useMediaCardFacts(item: MediaCard | null) {
-  const { ref: cardRef, isIntersecting } =
-    useIntersectionObserver<HTMLAnchorElement>({
-      enabled: Boolean(item),
-      once: true,
-      rootMargin: "160px",
-    });
-  const query = useQuery({
-    ...mediaCardFactsQuery(item?.kind ?? "movie", item?.tmdbId ?? 0),
-    enabled: Boolean(item) && isIntersecting,
-  });
-
-  return { facts: query.data ?? null, cardRef };
 }
 
 function formatRuntime(minutes: number | null | undefined) {
@@ -296,4 +284,19 @@ function ClockIcon() {
 
 function SeasonsIcon() {
   return <svg aria-hidden="true" className="size-3.5 fill-none stroke-current" viewBox="0 0 16 16" strokeWidth="1.6"><rect x="3" y="3" width="9" height="9" rx="1.5" /><path d="M5 1.5h7.5a2 2 0 0 1 2 2V11" /></svg>;
+}
+
+function DownloadIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="size-4 fill-none stroke-current"
+      viewBox="0 0 16 16"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M8 2v7m-2.75-2.5L8 9.25l2.75-2.75M3 12.5h10" />
+    </svg>
+  );
 }

@@ -5,15 +5,12 @@ import {
   type CatalogueManifest,
   type CatalogueRailResponse,
   type CollectionResponse,
-  type MediaCard,
-  type MediaCardFacts,
   type SeasonDetails,
   type Surface,
 } from "./catalogue";
 
 const catalogueStaleTime = 5 * 60 * 1000;
 const availabilityStaleTime = 30 * 1000;
-
 async function reelJson<T>(url: string, signal: AbortSignal): Promise<T> {
   const response = await fetch(url, { signal });
   if (!response.ok) throw new Error(`Reel request failed (${response.status})`);
@@ -40,22 +37,7 @@ export function catalogueRailQuery(itemsHref: string) {
       if (!url) throw new Error("This catalogue rail has an invalid URL.");
       return reelJson<CatalogueRailResponse>(url, signal);
     },
-    staleTime: catalogueStaleTime,
-  });
-}
-
-export function mediaCardFactsQuery(
-  kind: MediaCard["kind"],
-  tmdbId: number,
-) {
-  return queryOptions({
-    queryKey: ["reel", "title", kind, tmdbId, "facts", "en"] as const,
-    queryFn: ({ signal }) =>
-      reelJson<MediaCardFacts>(
-        `/api/reel/v1/titles/${kind}/${tmdbId}?language=en`,
-        signal,
-      ),
-    staleTime: catalogueStaleTime,
+    staleTime: availabilityStaleTime,
   });
 }
 
@@ -91,6 +73,6 @@ export function collectionQuery(initialHref: string) {
     },
     initialPageParam: initialHref,
     getNextPageParam: (lastPage) => lastPage.next ?? undefined,
-    staleTime: catalogueStaleTime,
+    staleTime: availabilityStaleTime,
   });
 }

@@ -1,7 +1,6 @@
 import { notFound } from "next/navigation";
 import {
   canonicalTmdbId,
-  type MediaCard,
   type MovieDetails,
   type PlaybackProgress,
   type SeriesDetails,
@@ -60,30 +59,16 @@ export default async function TitlePage({
   const tmdbId = canonicalTmdbId(kind, id);
   if (tmdbId == null) notFound();
 
-  let series: SeriesDetails | null = null;
-  let media: MediaCard;
+  let title: MovieDetails | SeriesDetails;
   try {
     if (kind === "series") {
-      series = await reelGet<SeriesDetails>(
-        `/v1/titles/series/${tmdbId}?language=en`,
+      title = await reelGet<SeriesDetails>(
+        `/v1/titles/series/${tmdbId}?language=en&include=initialSeason`,
       );
-      media = {
-        kind: "series",
-        id: series.id,
-        tmdbId: series.tmdbId,
-        title: series.title,
-        overview: series.overview,
-        year: series.year,
-        rating: series.rating,
-        images: series.images,
-        localCopy: null,
-        progress: progressValue(query),
-      };
     } else {
-      const movie = await reelGet<MovieDetails>(
+      title = await reelGet<MovieDetails>(
         `/v1/titles/movie/${tmdbId}?language=en`,
       );
-      media = { ...movie, kind: "movie", progress: progressValue(query) };
     }
   } catch (reason) {
     if (reason instanceof ReelResponseError && reason.status === 404) notFound();
@@ -93,14 +78,8 @@ export default async function TitlePage({
   return (
     <TitleDetail
       key={`${kind}-${id}`}
-      media={media}
-      series={series}
-      initialSeason={series?.initialSeason ?? null}
-      seriesError={
-        series && !series.initialSeason && series.issues.length
-          ? "Season and episode details are unavailable right now."
-          : null
-      }
+      title={title}
+      progress={progressValue(query)}
     />
   );
 }

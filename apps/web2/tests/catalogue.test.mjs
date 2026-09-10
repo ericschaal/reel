@@ -41,6 +41,19 @@ test("media facts and rating occupy separate artwork zones", async () => {
   assert.match(source, /variant="overlay"/);
 });
 
+test("library availability uses an accessible download icon", async () => {
+  const source = await readFile(
+    new URL("../app/media-card.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /aria-label="In library"/);
+  assert.match(source, /<DownloadIcon \/>/);
+  assert.match(source, /inline-flex text-accent/);
+  assert.doesNotMatch(source, /absolute top-2\.5 right-2\.5/);
+  assert.doesNotMatch(source, /text-emerald-100|bg-emerald-300/);
+});
+
 test("episode rows keep content stationary and promote the air date", async () => {
   const source = await readFile(
     new URL("../app/title/[kind]/[id]/episodes.tsx", import.meta.url),
@@ -54,6 +67,19 @@ test("episode rows keep content stationary and promote the air date", async () =
   assert.doesNotMatch(episodeList, /group-hover:translate-x/);
   assert.match(source, /<CalendarIcon \/>/);
   assert.match(source, /formatAirDate\(episode\.airDate\)/);
+});
+
+test("episode rail constrains long titles to the card width", async () => {
+  const source = await readFile(
+    new URL("../app/title/[kind]/[id]/episodes.tsx", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /className="min-w-0 flex items-baseline gap-2"/);
+  assert.match(
+    source,
+    /className="min-w-0 flex-1 truncate text-sm font-semibold/,
+  );
 });
 
 test("opening an episode does not force the page scroll position", async () => {
@@ -194,4 +220,12 @@ test("proxy permits only supported title detail routes", () => {
   assert.equal(reelProxyPathAllowed("v1/titles/series/abc"), false);
   assert.equal(reelProxyPathAllowed("v1/titles/movie/abc"), false);
   assert.equal(reelProxyPathAllowed("v1/titles/series/123/episodes"), false);
+});
+
+
+test("media cards render rail facts without additional data requests", async () => {
+  const source = await readFile(new URL("../app/media-card.tsx", import.meta.url), "utf8");
+  assert.match(source, /formatRuntime\(item.runtimeMinutes\)/);
+  assert.match(source, /formatSeasons\(item.numberOfSeasons\)/);
+  assert.doesNotMatch(source, /useQuery|useIntersectionObserver|titleSummaryQuery|fetch\(/);
 });

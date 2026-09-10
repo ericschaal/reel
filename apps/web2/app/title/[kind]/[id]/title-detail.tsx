@@ -4,9 +4,9 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import type {
   Episode,
-  MediaCard,
+  TitleMedia,
+  MovieDetails,
   PlaybackProgress,
-  SeasonDetails,
   SeriesDetails,
 } from "../../../catalogue";
 import { Artwork, RatingBadge } from "../../../media-card";
@@ -34,16 +34,19 @@ import {
 } from "./playback";
 
 export function TitleDetail({
-  media,
-  series = null,
-  initialSeason = null,
-  seriesError = null,
+  title,
+  progress: initialProgress,
 }: {
-  media: MediaCard;
-  series?: SeriesDetails | null;
-  initialSeason?: SeasonDetails | null;
-  seriesError?: string | null;
+  title: MovieDetails | SeriesDetails;
+  progress: PlaybackProgress | null;
 }) {
+  const media: TitleMedia = { ...title, progress: initialProgress };
+  const series = title.kind === "series" ? title : null;
+  const initialSeason = series?.initialSeason ?? null;
+  const seriesError =
+    series && !initialSeason && series.issues.length
+      ? "Season and episode details are unavailable right now."
+      : null;
   const [seasonNumber, setSeasonNumber] = useState(
     initialSeason?.seasonNumber ?? null,
   );
@@ -70,7 +73,9 @@ export function TitleDetail({
   );
   const [episodeDialog, setEpisodeDialog] = useState<Episode | null>(null);
   const localCopy =
-    media.kind === "series" ? nextEpisode?.localCopy : media.localCopy;
+    media.kind === "series"
+      ? nextEpisode?.availability === "local"
+      : media.availability === "local";
   const [selectedSource, setSelectedSource] = useState("stremio-1");
   const [activePlayback, setActivePlayback] =
     useState<ActivePlayback | null>(null);
@@ -236,7 +241,7 @@ export function TitleDetail({
                   <RatingBadge rating={media.rating} variant="chip" />
                 </>
               ) : null}
-              {media.kind === "movie" && media.localCopy ? (
+              {media.kind === "movie" && media.availability === "local" ? (
                 <>
                   <span aria-hidden="true">·</span>
                   <span>In your library</span>
@@ -255,6 +260,11 @@ export function TitleDetail({
             <p className="mt-6 max-w-2xl text-base leading-7 text-ink/80">
               {media.overview || "No synopsis is available for this title yet."}
             </p>
+            {media.availability === "unknown" ? (
+              <p className="mt-3 text-sm text-muted">
+                Local-library availability could not be checked.
+              </p>
+            ) : null}
             {media.kind === "series" && nextEpisode ? (
               <NextUp episode={nextEpisode} progress={progress} />
             ) : null}

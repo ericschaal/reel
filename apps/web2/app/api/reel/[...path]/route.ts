@@ -16,7 +16,7 @@ export async function GET(
     );
   }
   const upstream = new URL(reelPath, `${apiBaseUrl.replace(/\/$/, "")}/`);
-  for (const key of ["language", "cursor"]) {
+  for (const key of ["language", "cursor", "ids", "view", "include"]) {
     const value = request.nextUrl.searchParams.get(key);
     if (value) upstream.searchParams.set(key, value);
   }

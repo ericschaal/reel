@@ -7,7 +7,7 @@ use crate::{
 };
 
 use super::{
-    CatalogueIssue, CatalogueItem, Episode, Images, LocalCopy, MediaCard, MediaKind,
+    Availability, CatalogueIssue, CatalogueItem, Episode, Images, LocalCopy, MediaCard, MediaKind,
     MovieDetailsResponse, SeasonDetailsResponse, SeasonSummary, SeriesDetailsResponse,
 };
 
@@ -46,7 +46,6 @@ pub(super) async fn local_movies(
 
 #[derive(Debug, Clone)]
 pub(super) struct LocalEpisode {
-    pub local_copy: LocalCopy,
     pub runtime_minutes: Option<u32>,
 }
 
@@ -89,9 +88,6 @@ pub(super) async fn local_episodes(
             Some((
                 episode_number,
                 LocalEpisode {
-                    local_copy: LocalCopy {
-                        jellyfin_item_id: episode.id,
-                    },
                     runtime_minutes: episode
                         .run_time_ticks
                         .and_then(|ticks| u32::try_from(ticks / 600_000_000).ok()),
@@ -111,10 +107,11 @@ fn provider_id<'a>(item: &'a Item, provider: &str) -> Option<&'a str> {
 pub(super) fn items(
     items: Vec<DiscoverResult>,
     local_movies: &HashMap<TmdbId, LocalCopy>,
+    availability_known: bool,
 ) -> Vec<CatalogueItem> {
     items
         .into_iter()
-        .filter_map(|item| normalize(item, local_movies))
+        .filter_map(|item| normalize(item, local_movies, availability_known))
         .collect()
 }
 
@@ -124,6 +121,8 @@ pub(super) fn backdrop_url(path: String) -> String {
 
 pub(super) fn normalize_series_details(details: SeriesDetails) -> SeriesDetailsResponse {
     SeriesDetailsResponse {
+        kind: MediaKind::Series,
+        availability: Availability::EpisodeBased,
         id: format!("tmdb:series:{}", details.id),
         tmdb_id: details.id,
         title: details.name,
@@ -169,9 +168,11 @@ pub(super) fn initial_season_number(seasons: &[SeasonSummary]) -> Option<SeasonN
 
 pub(super) fn normalize_movie_details(
     details: MovieDetails,
-    local_copy: Option<LocalCopy>,
+    availability: Availability,
 ) -> MovieDetailsResponse {
     MovieDetailsResponse {
+        kind: MediaKind::Movie,
+        issues: Vec::new(),
         id: format!("tmdb:movie:{}", details.id),
         tmdb_id: details.id,
         title: details.title,
@@ -183,7 +184,7 @@ pub(super) fn normalize_movie_details(
             poster: details.poster_path.map(|path| image_url("w500", path)),
             backdrop: details.backdrop_path.map(backdrop_url),
         },
-        local_copy,
+        availability,
     }
 }
 
@@ -193,6 +194,9 @@ pub(super) fn normalize_season_details(
     mut local_episodes: HashMap<i32, LocalEpisode>,
     issues: Vec<CatalogueIssue>,
 ) -> SeasonDetailsResponse {
+    let availability_known = !issues
+        .iter()
+        .any(|issue| issue.source == super::CatalogueSource::Jellyfin);
     SeasonDetailsResponse {
         id: format!("tmdb:season:{}", details.id),
         series_tmdb_id,
@@ -217,7 +221,7 @@ pub(super) fn normalize_season_details(
                     rating: episode.vote_average,
                     still: episode.still_path.map(|path| image_url("original", path)),
                     runtime_minutes: local.as_ref().and_then(|episode| episode.runtime_minutes),
-                    local_copy: local.map(|episode| episode.local_copy),
+                    availability: Availability::for_copy(local.is_some(), availability_known),
                 }
             })
             .collect(),
@@ -228,6 +232,7 @@ pub(super) fn normalize_season_details(
 fn normalize(
     item: DiscoverResult,
     local_movies: &HashMap<TmdbId, LocalCopy>,
+    availability_known: bool,
 ) -> Option<CatalogueItem> {
     let kind = match item.media_type {
         MediaType::Movie => MediaKind::Movie,
@@ -241,19 +246,22 @@ fn normalize(
             .or(item.first_air_date.as_deref()),
     );
     let card = MediaCard {
+        runtime_minutes: None,
+        number_of_seasons: None,
         id: format!("tmdb:{}:{}", kind.as_str(), item.id),
         tmdb_id: item.id,
         title,
-        overview: item.overview,
         year,
         rating: item.vote_average,
         images: Images {
             poster: item.poster_path.map(|path| image_url("w500", path)),
             backdrop: item.backdrop_path.map(backdrop_url),
         },
-        local_copy: (kind == MediaKind::Movie)
-            .then(|| local_movies.get(&item.id).cloned())
-            .flatten(),
+        availability: if kind == MediaKind::Series {
+            Availability::EpisodeBased
+        } else {
+            Availability::for_copy(local_movies.contains_key(&item.id), availability_known)
+        },
     };
 
     Some(match kind {
@@ -348,9 +356,6 @@ mod tests {
         let local_episodes = HashMap::from([(
             1,
             LocalEpisode {
-                local_copy: LocalCopy {
-                    jellyfin_item_id: "jellyfin-episode-1".into(),
-                },
                 runtime_minutes: Some(52),
             },
         )]);
@@ -360,12 +365,6 @@ mod tests {
         assert_eq!(season.episodes[0].id, "tmdb:episode:201");
         assert_eq!(season.episodes[0].overview, None);
         assert_eq!(season.episodes[0].runtime_minutes, Some(52));
-        assert_eq!(
-            season.episodes[0]
-                .local_copy
-                .as_ref()
-                .map(|copy| copy.jellyfin_item_id.as_str()),
-            Some("jellyfin-episode-1")
-        );
+        assert_eq!(season.episodes[0].availability, Availability::Local);
     }
 }

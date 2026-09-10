@@ -97,14 +97,15 @@ pub enum CatalogueItem {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct MediaCard {
+    pub runtime_minutes: Option<u32>,
+    pub number_of_seasons: Option<u32>,
     pub id: String,
     pub tmdb_id: TmdbId,
     pub title: String,
-    pub overview: Option<String>,
     pub year: Option<i32>,
     pub rating: Option<f64>,
     pub images: Images,
-    pub local_copy: Option<LocalCopy>,
+    pub availability: Availability,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -122,6 +123,9 @@ pub struct LocalCopy {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct MovieDetailsResponse {
+    pub kind: MediaKind,
+    #[serde(default)]
+    pub issues: Vec<CatalogueIssue>,
     pub id: String,
     pub tmdb_id: TmdbId,
     pub title: String,
@@ -130,12 +134,14 @@ pub struct MovieDetailsResponse {
     pub rating: Option<f64>,
     pub runtime_minutes: Option<u32>,
     pub images: Images,
-    pub local_copy: Option<LocalCopy>,
+    pub availability: Availability,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SeriesDetailsResponse {
+    pub kind: MediaKind,
+    pub availability: Availability,
     pub id: String,
     pub tmdb_id: TmdbId,
     pub title: String,
@@ -191,7 +197,7 @@ pub struct Episode {
     pub rating: Option<f64>,
     pub still: Option<String>,
     pub runtime_minutes: Option<u32>,
-    pub local_copy: Option<LocalCopy>,
+    pub availability: Availability,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -213,7 +219,7 @@ pub enum CategoryKind {
     Network,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Hash, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum MediaKind {
     Movie,
@@ -261,4 +267,63 @@ pub enum CatalogueSource {
 #[serde(rename_all = "camelCase")]
 pub enum CatalogueIssueCode {
     UpstreamUnavailable,
+}
+
+/// Compact card facts. No artwork, synopsis, availability or episode guide.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum TitleSummary {
+    Movie {
+        id: String,
+        runtime_minutes: Option<u32>,
+    },
+    Series {
+        id: String,
+        number_of_seasons: Option<u32>,
+    },
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub struct TitleSummariesResponse {
+    pub items: Vec<TitleSummary>,
+    pub issues: Vec<TitleSummaryIssue>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+pub struct TitleSummaryIssue {
+    pub id: String,
+    pub code: TitleSummaryIssueCode,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TitleSummaryIssueCode {
+    MediaNotFound,
+    CatalogueUnavailable,
+}
+
+/// Local-library knowledge, independent of remote playback and acquisition.
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum Availability {
+    Local,
+    NotLocal,
+    Unknown,
+    EpisodeBased,
+}
+
+impl Availability {
+    pub(super) fn for_copy(present: bool, known: bool) -> Self {
+        if present {
+            Self::Local
+        } else if known {
+            Self::NotLocal
+        } else {
+            Self::Unknown
+        }
+    }
 }

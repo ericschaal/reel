@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import type {
   Episode,
-  MediaCard,
+  TitleMedia,
   SeasonDetails,
   SeriesDetails,
 } from "../../../catalogue";
@@ -26,7 +26,7 @@ export function DownloadView({
   onChange,
   onBack,
 }: {
-  media: MediaCard;
+  media: TitleMedia;
   series: SeriesDetails | null;
   season: SeasonDetails | null;
   scope: DownloadScope;
@@ -43,7 +43,7 @@ export function DownloadView({
     if (season?.seasonNumber === number) {
       return (
         total +
-        season.episodes.filter((episode) => !episode.localCopy).length
+        season.episodes.filter((episode) => !(episode.availability === "local")).length
       );
     }
     return total + (summary?.episodeCount ?? 0);
@@ -102,7 +102,7 @@ export function DownloadView({
                 const selected = selectedSeasons.includes(item.seasonNumber);
                 const missing =
                   season?.seasonNumber === item.seasonNumber
-                    ? season.episodes.filter((episode) => !episode.localCopy)
+                    ? season.episodes.filter((episode) => !(episode.availability === "local"))
                         .length
                     : item.episodeCount;
                 return (

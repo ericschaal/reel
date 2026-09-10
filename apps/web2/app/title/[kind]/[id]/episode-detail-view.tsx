@@ -1,6 +1,6 @@
 import type {
   Episode,
-  MediaCard,
+  TitleMedia,
   PlaybackProgress,
   SeasonDetails,
   SeriesDetails,
@@ -37,7 +37,7 @@ export function EpisodeDetailView({
   onStream,
   onDownload,
 }: {
-  media: MediaCard;
+  media: TitleMedia;
   episode: Episode;
   series: SeriesDetails | null;
   season: SeasonDetails | null;
@@ -53,7 +53,7 @@ export function EpisodeDetailView({
   onStream: (source: Source, resumeSeconds?: number) => void;
   onDownload: () => void;
 }) {
-  const localCopy = Boolean(episode.localCopy);
+  const localCopy = episode.availability === "local";
   const lastSourceAvailable = isLastSourceAvailable(progress, localCopy);
   const resumeSourceLabel = progress
     ? lastSourceAvailable
@@ -109,7 +109,7 @@ export function EpisodeDetailView({
                     : onStream(source, resumeSeconds)
                 }
               />
-              {!episode.localCopy ? (
+              {!(episode.availability === "local") ? (
                 <button
                   type="button"
                   className={buttonClass}
