@@ -91,6 +91,33 @@ test("opening an episode does not force the page scroll position", async () => {
   assert.doesNotMatch(source, /window\.scrollTo|seriesScrollPosition/);
 });
 
+test("download actions become downloaded status for local media", async () => {
+  const [titleDetail, episodeDetail, playback] = await Promise.all([
+    readFile(
+      new URL("../app/title/[kind]/[id]/title-detail.tsx", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../app/title/[kind]/[id]/episode-detail-view.tsx", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../app/title/[kind]/[id]/playback.tsx", import.meta.url),
+      "utf8",
+    ),
+  ]);
+
+  assert.match(playback, /export function DownloadedStatus/);
+  assert.match(playback, /<CheckIcon \/> Downloaded/);
+  assert.match(
+    titleDetail,
+    /media\.kind === "movie" && media\.availability === "local"/,
+  );
+  assert.match(titleDetail, /<DownloadedStatus \/>/);
+  assert.match(episodeDetail, /episode\.availability === "local"/);
+  assert.match(episodeDetail, /<DownloadedStatus \/>/);
+});
+
 test("all secondary pages use the shared navigation header", async () => {
   const [ui, collection, title] = await Promise.all([
     readFile(new URL("../app/ui.tsx", import.meta.url), "utf8"),

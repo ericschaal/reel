@@ -23,6 +23,7 @@ import { NextUp, SeriesHierarchy } from "./episodes";
 import {
   type ActivePlayback,
   DownloadIcon,
+  DownloadedStatus,
   exampleSources,
   isLastSourceAvailable,
   PlaybackControl,
@@ -136,8 +137,11 @@ export function TitleDetail({
   }
 
   function openDownload() {
-    if (media.kind === "movie") setDownloadScope({ kind: "movie" });
-    else if (seasonNumber != null) {
+    if (media.kind === "movie") {
+      if (media.availability !== "local") {
+        setDownloadScope({ kind: "movie" });
+      }
+    } else if (seasonNumber != null) {
       setDownloadScope({
         kind: "series",
         seasonNumbers: [seasonNumber],
@@ -280,13 +284,17 @@ export function TitleDetail({
                     : stream(source, resumeSeconds)
                 }
               />
-              <button
-                className={buttonClass}
-                type="button"
-                onClick={openDownload}
-              >
-                <DownloadIcon /> Download
-              </button>
+              {media.kind === "movie" && media.availability === "local" ? (
+                <DownloadedStatus />
+              ) : (
+                <button
+                  className={buttonClass}
+                  type="button"
+                  onClick={openDownload}
+                >
+                  <DownloadIcon /> Download
+                </button>
+              )}
             </div>
             <PlaybackHint
               progress={progress}

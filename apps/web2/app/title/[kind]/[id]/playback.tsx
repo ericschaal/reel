@@ -300,6 +300,30 @@ export function DownloadIcon() {
   );
 }
 
+export function DownloadedStatus() {
+  return (
+    <span
+      className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-white/15 bg-white/5 px-5 py-2.5 text-sm font-semibold text-ink/75"
+      role="status"
+    >
+      <CheckIcon /> Downloaded
+    </span>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="size-4 fill-none stroke-current"
+      viewBox="0 0 16 16"
+      strokeWidth="1.75"
+    >
+      <path d="m3 8.5 3 3 7-7" />
+    </svg>
+  );
+}
+
 function PlayIcon() {
   return (
     <svg

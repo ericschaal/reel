@@ -10,6 +10,7 @@ import { buttonClass, Eyebrow, glassClass, pageGutter } from "../../../ui";
 import { EpisodeMetadata, EpisodeRail, SeasonSelector } from "./episodes";
 import {
   DownloadIcon,
+  DownloadedStatus,
   FullScreenShell,
   isLastSourceAvailable,
   PlaybackControl,
@@ -109,7 +110,9 @@ export function EpisodeDetailView({
                     : onStream(source, resumeSeconds)
                 }
               />
-              {!(episode.availability === "local") ? (
+              {episode.availability === "local" ? (
+                <DownloadedStatus />
+              ) : (
                 <button
                   type="button"
                   className={buttonClass}
@@ -117,7 +120,7 @@ export function EpisodeDetailView({
                 >
                   <DownloadIcon /> Download
                 </button>
-              ) : null}
+              )}
             </div>
             <PlaybackHint
               progress={progress}
