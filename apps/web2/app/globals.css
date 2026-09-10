@@ -34,6 +34,15 @@
     color: var(--color-background);
   }
 
+  .player-settings-content {
+    max-height: min(280px, calc(100dvh - 210px));
+  }
+
+  .player-settings-options {
+    scrollbar-width: thin;
+    scrollbar-color: #ffffff30 transparent;
+  }
+
   .player-range {
     --range-progress: 0%;
     appearance: none;

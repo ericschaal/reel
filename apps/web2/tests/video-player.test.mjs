@@ -33,6 +33,7 @@ Object.assign(globalThis, {
   HTMLMediaElement: dom.window.HTMLMediaElement,
   IS_REACT_ACT_ENVIRONMENT: true,
 });
+dom.window.HTMLElement.prototype.setPointerCapture = function () {};
 const { createRoot } = await import('react-dom/client');
 const { ReelVideoPlayer } = await import('../app/title/[kind]/[id]/video-player.tsx');
 const container = document.getElementById('root');
@@ -125,8 +126,9 @@ async function presentFrame(video) {
   if (callback) await act(() => callback());
 }
 async function changeAudio() {
-  await click('Audio and subtitles');
-  await click('Alternate audiofra');
+  await click('Playback settings');
+  await click('Audio');
+  await click('Alternate audio');
 }
 
 test('native HLS selects the requested subtitle even when track order differs', async () => {
@@ -175,8 +177,9 @@ for (const engine of ['native HLS', 'hls.js']) {
     assert.equal(video.currentTime, 120);
     assert.equal(container.querySelector('[aria-label="Switching track"]'), null);
     assert.equal(container.querySelector('video'), video);
-    await click('Audio and subtitles');
-    await click('Original audioeng');
+    await click('Playback settings');
+    await click('Audio');
+    await click('Original audio');
     await canPlay(video);
     assert.equal(switches, 2);
     assert.equal(video.paused, true);
@@ -186,7 +189,8 @@ for (const engine of ['native HLS', 'hls.js']) {
     nativeHls = engine === 'native HLS';
     const video = await mount();
     await canPlay(video);
-    await click('Playback speed');
+    await click('Playback settings');
+    await click('Speed');
     await click('1.5×');
     assert.equal(video.playbackRate, 1.5);
     video.currentTime = 120;
@@ -195,7 +199,9 @@ for (const engine of ['native HLS', 'hls.js']) {
     assert.equal(video.paused, false);
     assert.equal(video.currentTime, 120);
     assert.equal(video.playbackRate, 1.5);
-    assert.equal(container.querySelector('[aria-label="Playback speed"]').textContent, '1.5×');
+    await click('Playback settings');
+    await click('Speed');
+    assert.equal(container.querySelector('[aria-label="1.5×"]').getAttribute('aria-pressed'), 'true');
   });
 }
 
@@ -205,7 +211,9 @@ test('external rate changes update the speed control', async () => {
     video.playbackRate = 2;
     video.dispatchEvent(new dom.window.Event('ratechange'));
   });
-  assert.equal(container.querySelector('[aria-label="Playback speed"]').textContent, '2×');
+  await click('Playback settings');
+  await click('Speed');
+  assert.equal(container.querySelector('[aria-label="2×"]').getAttribute('aria-pressed'), 'true');
 });
 
 for (const selectedSubtitleIndex of [-1, null]) {
@@ -267,9 +275,9 @@ test('subtitle switching shows the spinner without the central play overlay', as
   let finishActivation;
   const video = await mount({}, () => new Promise(resolve => { finishActivation = resolve; }));
   await canPlay(video);
-  await click('Audio and subtitles');
-  await click('subtitles');
-  await click('Frenchfra');
+  await click('Playback settings');
+  await click('Subtitles');
+  await click('French');
   assert.ok(container.querySelector('[aria-label="Switching track"]'));
   assert.ok(!container.querySelector('button.absolute[aria-label="Play"]'), 'The play overlay must not cover the spinner');
   // Events queued by the old stream must not dismiss the switch indicator.
@@ -290,4 +298,42 @@ test('prefers hls.js when the browser also advertises native HLS', async () => {
   assert.equal(Hls.instances.length, 1);
   assert.equal(Hls.instances[0].video, video);
   assert.equal(video.getAttribute('src'), null);
+});
+
+test('volume dragging keeps controls visible when the pointer leaves the player', async () => {
+  const video = await mount();
+  await canPlay(video);
+  const slider = container.querySelector('[aria-label="Volume"]');
+  const player = video.parentElement;
+  await act(() => slider.dispatchEvent(new dom.window.Event('pointerdown', { bubbles: true })));
+  await act(() => player.dispatchEvent(new dom.window.MouseEvent('mouseout', { bubbles: true, relatedTarget: null })));
+  assert.ok(player.className.includes('cursor-default'), 'Controls must stay visible throughout the drag');
+});
+
+test('settings support category arrow navigation and Escape restores the opener', async () => {
+  await mount();
+  const opener = container.querySelector('[aria-label="Playback settings"]');
+  opener.focus();
+  await click('Playback settings');
+  assert.equal(document.activeElement.getAttribute('aria-label'), 'Audio');
+  await act(() => document.activeElement.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })));
+  assert.equal(document.activeElement.getAttribute('aria-label'), 'Subtitles');
+  await click('Subtitles');
+  assert.equal(document.activeElement.getAttribute('aria-label'), 'Back to settings');
+  await click('Back to settings');
+  assert.equal(document.activeElement.getAttribute('aria-label'), 'Audio');
+  await act(() => document.activeElement.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+  assert.equal(container.querySelector('[role="dialog"]'), null);
+  assert.equal(document.activeElement, opener);
+});
+
+test('choosing the current audio track does not interrupt playback', async () => {
+  let switches = 0;
+  const video = await mount({}, async () => { switches++; return descriptor; });
+  await canPlay(video);
+  await click('Playback settings');
+  await click('Audio');
+  await click('Original audio');
+  assert.equal(switches, 0);
+  assert.equal(video.paused, false);
 });

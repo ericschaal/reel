@@ -164,7 +164,7 @@ test("custom player exposes complete playback and track controls", async () => {
 
   assert.match(player, /aria-label="Seek through video"/);
   assert.match(player, /aria-label="Volume"/);
-  assert.match(player, /Audio &amp; subtitles/);
+  assert.match(player, /aria-label="Playback settings"/);
   assert.match(player, /hls\.audioTrack = id/);
   assert.match(player, /hls\.subtitleTrack = id/);
   assert.match(player, /hls\.subtitleDisplay = id !== -1/);

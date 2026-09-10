@@ -17,7 +17,7 @@ import type {
 } from "./playback";
 
 type ReadyPlayback = Extract<ActivePlayback, { status: "ready" }>;
-type PlayerMenu = "audio" | "subtitles" | "speed" | null;
+type PlayerMenu = "settings" | "audio" | "subtitles" | "speed" | null;
 type TrackChoice = { id: number; label: string; language?: string };
 
 const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
@@ -36,6 +36,7 @@ export function ReelVideoPlayer({
     selection: PlaybackTrackSelection,
   ) => Promise<PlaybackDescriptor>;
 }) {
+  const volumeDraggingRef = useRef(false);
   const playerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -98,7 +99,7 @@ export function ReelVideoPlayer({
     if (!keepOpen) {
       controlsTimer.current = setTimeout(() => {
         const video = videoRef.current;
-        if (video && !video.paused) setControlsVisible(false);
+        if (video && !video.paused && !volumeDraggingRef.current) setControlsVisible(false);
       }, 3200);
     }
   }, []);
@@ -466,6 +467,11 @@ export function ReelVideoPlayer({
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
+      if (event.key === "Escape" && menu) {
+        event.preventDefault();
+        setMenu(null);
+        return;
+      }
       if (target?.matches("input, button, select, textarea")) return;
       switch (event.key.toLowerCase()) {
         case " ":
@@ -510,6 +516,7 @@ export function ReelVideoPlayer({
   function updateVolume(nextVolume: number) {
     const video = videoRef.current;
     if (!video) return;
+    nextVolume = Math.min(1, Math.max(0, nextVolume));
     video.volume = nextVolume;
     video.muted = nextVolume === 0;
     setVolume(nextVolume);
@@ -517,6 +524,7 @@ export function ReelVideoPlayer({
   }
 
   function chooseAudio(id: number) {
+    if (id === selectedAudio || isSwitchingTracks) return;
     if (descriptorAudioTracks.length) {
       void switchDescriptorTracks({
         audioStreamIndex: id,
@@ -531,6 +539,7 @@ export function ReelVideoPlayer({
   }
 
   function chooseSubtitle(id: number) {
+    if (id === selectedSubtitle || isSwitchingTracks) return;
     if (descriptorSubtitleTracks.length) {
       void switchDescriptorTracks({
         audioStreamIndex: selectedAudio,
@@ -585,7 +594,7 @@ export function ReelVideoPlayer({
       className={`group relative h-dvh w-full overflow-hidden bg-black text-white ${controlsVisible || menu ? "cursor-default" : "cursor-none"}`}
       onMouseMove={() => revealControls(Boolean(menu))}
       onMouseLeave={() => {
-        if (isPlaying && !menu) setControlsVisible(false);
+        if (isPlaying && !menu && !volumeDraggingRef.current) setControlsVisible(false);
       }}
       onClick={onPlayerClick}
     >
@@ -593,7 +602,7 @@ export function ReelVideoPlayer({
         ref={videoRef}
         className="h-full w-full object-contain"
         playsInline
-        onClick={togglePlay}
+        onClick={() => menu ? setMenu(null) : togglePlay()}
         onDoubleClick={toggleFullscreen}
         onPlay={() => {
           setIsPlaying(true);
@@ -719,6 +728,7 @@ export function ReelVideoPlayer({
             onPlaybackRate={choosePlaybackRate}
             onClose={() => setMenu(null)}
             error={trackSwitchError}
+            busy={isSwitchingTracks}
           />
         ) : null}
 
@@ -750,19 +760,37 @@ export function ReelVideoPlayer({
             <ReplayIcon className="size-6" direction="forward" />
           </button>
 
-          <div className="group/volume flex items-center">
+          <div className="flex shrink-0 items-center gap-1">
             <button type="button" className={iconButtonClass} onClick={toggleMute} aria-label={isMuted ? "Unmute" : "Mute"}>
               <VolumeIcon className="size-6" muted={isMuted || volume === 0} />
             </button>
             <input
               type="range"
-              className="player-range player-volume-range hidden w-0 opacity-0 transition-all duration-200 group-hover/volume:ml-1 group-hover/volume:block group-hover/volume:w-20 group-hover/volume:opacity-100 focus:ml-1 focus:block focus:w-20 focus:opacity-100 sm:block"
+              className="player-range player-volume-range w-14 shrink-0 touch-none sm:w-24"
               min="0"
               max="1"
               step="0.05"
               value={isMuted ? 0 : volume}
               style={{ "--range-progress": `${volumeProgress}%` } as CSSProperties}
               aria-label="Volume"
+              aria-valuetext={`${Math.round(volumeProgress)}%`}
+              onPointerDown={(event) => {
+                volumeDraggingRef.current = true;
+                event.currentTarget.setPointerCapture(event.pointerId);
+                revealControls(true);
+              }}
+              onPointerUp={() => {
+                volumeDraggingRef.current = false;
+                revealControls(Boolean(menu));
+              }}
+              onPointerCancel={() => {
+                volumeDraggingRef.current = false;
+                revealControls(Boolean(menu));
+              }}
+              onLostPointerCapture={() => {
+                volumeDraggingRef.current = false;
+                revealControls(Boolean(menu));
+              }}
               onChange={(event) => updateVolume(Number(event.currentTarget.value))}
             />
           </div>
@@ -772,22 +800,13 @@ export function ReelVideoPlayer({
           <div className="ml-auto flex items-center gap-1 sm:gap-2">
             <button
               type="button"
-              className={`${textButtonClass} hidden md:inline-flex`}
-              onClick={() => setMenu(menu === "speed" ? null : "speed")}
-              aria-label="Playback speed"
-              aria-expanded={menu === "speed"}
-            >
-              {playbackRate}×
-            </button>
-            <button
-              type="button"
               className={textButtonClass}
-              onClick={() => setMenu(menu === "audio" ? null : "audio")}
-              aria-label="Audio and subtitles"
-              aria-expanded={menu === "audio" || menu === "subtitles"}
+              onClick={() => setMenu(menu ? null : "settings")}
+              aria-label="Playback settings"
+              aria-expanded={Boolean(menu)}
             >
-              <TracksIcon className="size-6" />
-              <span className="hidden lg:inline">Audio &amp; subtitles</span>
+              <SettingsIcon className="size-5" />
+              <span className="hidden lg:inline">Settings</span>
             </button>
             {hasPictureInPicture ? (
               <button type="button" className={`${iconButtonClass} hidden sm:grid`} onClick={() => void togglePictureInPicture()} aria-label="Picture in picture">
@@ -805,18 +824,9 @@ export function ReelVideoPlayer({
 }
 
 function PlayerSettings({
-  menu,
-  audioTracks,
-  subtitleTracks,
-  selectedAudio,
-  selectedSubtitle,
-  playbackRate,
-  onMenuChange,
-  onAudio,
-  onSubtitle,
-  onPlaybackRate,
-  onClose,
-  error,
+  menu, audioTracks, subtitleTracks, selectedAudio, selectedSubtitle,
+  playbackRate, onMenuChange, onAudio, onSubtitle, onPlaybackRate,
+  onClose, error, busy,
 }: {
   menu: Exclude<PlayerMenu, null>;
   audioTracks: TrackChoice[];
@@ -830,70 +840,129 @@ function PlayerSettings({
   onPlaybackRate: (rate: number) => void;
   onClose: () => void;
   error: string | null;
+  busy: boolean;
 }) {
+  const [search, setSearch] = useState({ category: menu, text: "" });
+  const query = search.category === menu ? search.text : "";
+  const matches = (track: TrackChoice) => track.label.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase());
+  const visibleAudioTracks = audioTracks.filter(matches);
+  const visibleSubtitleTracks = subtitleTracks.filter(matches);
+  const searchable = menu === "audio" ? audioTracks.length > 6 : menu === "subtitles" && subtitleTracks.length > 6;
+  const panelRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const opener = document.activeElement as HTMLElement | null;
+    return () => { if (opener?.isConnected) opener.focus(); };
+  }, []);
+
+  useEffect(() => {
+    panelRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
+  }, [menu]);
+
+  useEffect(() => {
+    const dismiss = (event: Event) => {
+      const target = event.target as HTMLElement;
+      if (!panelRef.current?.contains(target) && !target.closest('button[aria-label="Playback settings"]')) onClose();
+    };
+    document.addEventListener("click", dismiss);
+    return () => document.removeEventListener("click", dismiss);
+  }, [onClose]);
+
+  const categories = [
+    { key: "audio", label: "Audio", value: splitTrackLabel(audioTracks.find(track => track.id === selectedAudio)?.label ?? "Default")[0], icon: AudioIcon },
+    { key: "subtitles", label: "Subtitles", value: selectedSubtitle === -1 ? "Off" : splitTrackLabel(subtitleTracks.find(track => track.id === selectedSubtitle)?.label ?? "On")[0], icon: CaptionsIcon },
+    { key: "speed", label: "Speed", value: playbackRate === 1 ? "Normal" : `${playbackRate}×`, icon: SpeedIcon },
+  ] as const;
+  const title = categories.find(category => category.key === menu)?.label;
+
   return (
-    <section className="absolute right-4 bottom-24 left-4 overflow-hidden rounded-2xl border border-white/15 bg-[#101214]/95 shadow-2xl backdrop-blur-2xl sm:right-7 sm:left-auto sm:w-[420px] lg:right-10" aria-label="Playback settings">
-      <div className="flex items-center border-b border-white/10 px-2 pt-2">
-        {(["audio", "subtitles", "speed"] as const).map((item) => (
-          <button
-            key={item}
-            type="button"
-            className={`relative flex-1 px-2 py-3 text-xs font-semibold capitalize transition-colors sm:text-sm ${menu === item ? "text-white" : "text-white/50 hover:text-white/80"}`}
-            onClick={() => onMenuChange(item)}
-          >
-            {item}
-            {menu === item ? <span className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-accent" /> : null}
+    <section ref={panelRef} role="dialog" className="player-settings absolute right-4 bottom-[calc(100%+0.75rem)] left-4 overflow-hidden rounded-2xl border border-line bg-panel/70 p-1.5 shadow-[0_8px_32px_#0005] backdrop-blur-xl sm:right-7 sm:left-auto sm:w-80 lg:right-10" aria-label="Playback settings"
+      onKeyDown={event => {
+        const target = event.target as HTMLElement;
+        if (target.matches("input")) return;
+        if (event.key === "ArrowLeft" && menu !== "settings") {
+          event.preventDefault();
+          onMenuChange("settings");
+          return;
+        }
+        if (event.key === "ArrowRight" && menu === "settings") {
+          event.preventDefault();
+          target.closest("button")?.click();
+          return;
+        }
+        if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+        event.preventDefault();
+        const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"));
+        const index = buttons.indexOf(target.closest("button") as HTMLButtonElement);
+        const next = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : (index + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length;
+        buttons[next]?.focus();
+      }}
+    >
+      {menu === "settings" ? <div className="py-0.5">
+        {categories.map(({ key, label, value, icon: Icon }) => (
+          <button key={key} type="button" aria-label={label} onClick={() => onMenuChange(key)} className="flex min-h-12 w-full items-center gap-3 rounded-xl px-3 text-left transition-colors hover:bg-white/8 focus-visible:outline-offset-[-2px]">
+            <Icon className="size-[18px] shrink-0 text-white/75" />
+            <span className="text-sm font-medium text-ink">{label}</span>
+            <span className="ml-auto max-w-28 truncate text-[13px] text-muted">{value}</span>
+            <ChevronIcon className="size-3.5 shrink-0 text-white/35" />
           </button>
         ))}
-        <button type="button" className="ml-1 grid size-9 place-items-center rounded-full text-white/55 hover:bg-white/10 hover:text-white" onClick={onClose} aria-label="Close settings">
-          <CloseIcon className="size-5" />
-        </button>
-      </div>
-      <div className="max-h-64 overflow-y-auto p-2">
-        {error ? (
-          <p className="mx-2 mb-2 rounded-lg bg-red-400/10 px-3 py-2 text-xs leading-5 text-red-200" role="alert">
-            {error}
-          </p>
-        ) : null}
-        {menu === "audio" ? (
-          audioTracks.length ? (
-            audioTracks.map((track) => (
-              <Choice key={track.id} selected={selectedAudio === track.id} label={track.label} detail={track.language} onClick={() => onAudio(track.id)} />
-            ))
-          ) : (
-            <EmptyTrackState label="The stream exposes one default audio track." />
-          )
-        ) : null}
-        {menu === "subtitles" ? (
-          <>
-            <Choice selected={selectedSubtitle === -1} label="Off" onClick={() => onSubtitle(-1)} />
-            {subtitleTracks.length ? subtitleTracks.map((track) => (
-              <Choice key={track.id} selected={selectedSubtitle === track.id} label={track.label} detail={track.language} onClick={() => onSubtitle(track.id)} />
-            )) : <EmptyTrackState label="No subtitle tracks are available in this stream." />}
-          </>
-        ) : null}
-        {menu === "speed" ? PLAYBACK_RATES.map((rate) => (
-          <Choice key={rate} selected={playbackRate === rate} label={rate === 1 ? "Normal" : `${rate}×`} onClick={() => onPlaybackRate(rate)} />
-        )) : null}
-      </div>
+      </div> : <>
+        <div className="mb-1 border-b border-white/8 pb-1">
+          <button type="button" aria-label="Back to settings" onClick={() => onMenuChange("settings")} className="flex min-h-10 w-full items-center gap-2 rounded-xl px-2 text-sm font-semibold text-white/90 transition-colors hover:bg-white/5 focus-visible:outline-offset-[-2px]">
+            <ChevronIcon className="size-4 rotate-180 text-white/55" />
+            {title}
+          </button>
+        </div>
+        <div aria-busy={busy} className="player-settings-content flex min-h-0 min-w-0 flex-col">
+          {busy ? <span role="status" className="block shrink-0 px-3 py-2 text-xs text-white/60">Switching…</span> : null}
+          {searchable ? <input type="search" aria-label="Search tracks" placeholder="Search languages" value={query} onChange={event => setSearch({ category: menu, text: event.currentTarget.value })} className="mx-1 my-1 h-9 shrink-0 rounded-lg border-0 bg-black/20 px-3 text-[13px] text-white placeholder:text-white/35 focus-visible:outline-offset-[-2px]" /> : null}
+          <div key={menu} className="player-settings-options min-h-0 overflow-y-auto overscroll-contain">
+          {query && !(menu === "audio" ? visibleAudioTracks : visibleSubtitleTracks).length ? <p role="status" className="px-2 py-3 text-sm text-white/50">No matching tracks.</p> : null}
+          {error ? <p className="mb-2 rounded-lg bg-red-400/10 px-3 py-2 text-xs leading-5 text-red-200" role="alert">{error}</p> : null}
+          {menu === "audio" ? (
+            audioTracks.length ? visibleAudioTracks.map(track => (
+              <Choice key={track.id} selected={selectedAudio === track.id} label={track.label} disabled={busy} onClick={() => onAudio(track.id)} />
+            )) : <EmptyTrackState label="The stream uses its default audio track." />
+          ) : null}
+          {menu === "subtitles" ? <>
+            <Choice selected={selectedSubtitle === -1} label="Off" disabled={busy} onClick={() => onSubtitle(-1)} />
+            {subtitleTracks.length ? visibleSubtitleTracks.map(track => (
+              <Choice key={track.id} selected={selectedSubtitle === track.id} label={track.label} disabled={busy} onClick={() => onSubtitle(track.id)} />
+            )) : <EmptyTrackState label="No subtitle tracks are available." />}
+          </> : null}
+          {menu === "speed" ? PLAYBACK_RATES.map(rate => (
+            <Choice key={rate} selected={playbackRate === rate} label={rate === 1 ? "Normal" : `${rate}×`} disabled={false} onClick={() => onPlaybackRate(rate)} />
+          )) : null}
+          </div>
+        </div>
+      </>}
+
     </section>
   );
 }
 
-function Choice({ selected, label, detail, onClick }: { selected: boolean; label: string; detail?: string; onClick: () => void }) {
+function splitTrackLabel(label: string) {
+  const parts = label.split(/\s+(?:-|·|–|—)\s+/);
+  // Some providers prefix the language with an accessibility variant.
+  if (parts.length > 1 && /^(SDH|forced|CC)$/i.test(parts[0])) {
+    [parts[0], parts[1]] = [parts[1], parts[0]];
+  }
+  return parts.filter((part, index) => index === 0 || !/^(SUBRIP|SRT|ASS|SSA|WEBVTT|VTT|PGSSUB)$/i.test(part));
+}
+
+function Choice({ selected, label, detail, disabled, onClick }: { selected: boolean; label: string; detail?: string; disabled: boolean; onClick: () => void }) {
+  const [title, ...metadata] = splitTrackLabel(label);
+  const description = metadata.join(" · ") || detail;
   return (
-    <button type="button" className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 text-left text-sm transition-colors hover:bg-white/8" onClick={onClick}>
-      <span className={`grid size-5 place-items-center rounded-full border ${selected ? "border-accent bg-accent text-black" : "border-white/25"}`}>
-        {selected ? <CheckIcon className="size-3" /> : null}
-      </span>
-      <span className="flex-1 font-medium">{label}</span>
-      {detail && detail.toLowerCase() !== label.toLowerCase() ? <span className="text-xs uppercase text-white/40">{detail}</span> : null}
+    <button type="button" aria-label={label} aria-pressed={selected} disabled={disabled} className="flex min-h-10 w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-white/8 focus-visible:outline-offset-[-2px] disabled:cursor-wait disabled:opacity-50" onClick={onClick}>
+      <span className="min-w-0 flex-1"><span className={`block text-sm font-medium [overflow-wrap:anywhere] ${selected ? "text-white" : "text-white/70"}`}>{title}</span>{description ? <span className="mt-1 block text-[11px] leading-4 text-white/40 [overflow-wrap:anywhere]">{description}</span> : null}</span>
+      {selected ? <CheckIcon className="size-4 shrink-0 text-accent" /> : null}
     </button>
   );
 }
 
 function EmptyTrackState({ label }: { label: string }) {
-  return <p className="px-3 py-5 text-sm leading-6 text-white/45">{label}</p>;
+  return <p className="px-2 py-3 text-sm leading-6 text-white/45">{label}</p>;
 }
 
 function findSubtitleTrackIndex(
@@ -935,11 +1004,16 @@ type IconProps = { className?: string };
 function PlayIcon({ className }: IconProps) { return <svg aria-hidden="true" className={`fill-current ${className ?? ""}`} viewBox="0 0 24 24"><path d="M7 4.8a1.2 1.2 0 0 1 1.84-1.01l11.18 7.2a1.2 1.2 0 0 1 0 2.02l-11.18 7.2A1.2 1.2 0 0 1 7 19.2V4.8Z" /></svg>; }
 function PauseIcon({ className }: IconProps) { return <svg aria-hidden="true" className={`fill-current ${className ?? ""}`} viewBox="0 0 24 24"><path d="M6.5 4h3v16h-3zM14.5 4h3v16h-3z" /></svg>; }
 function BackIcon({ className }: IconProps) { return <svg aria-hidden="true" className={`fill-none stroke-current ${className ?? ""}`} viewBox="0 0 24 24" strokeWidth="1.8"><path d="m14.5 5-7 7 7 7M8 12h11" /></svg>; }
-function CloseIcon({ className }: IconProps) { return <svg aria-hidden="true" className={`fill-none stroke-current ${className ?? ""}`} viewBox="0 0 24 24" strokeWidth="1.8"><path d="m6 6 12 12M18 6 6 18" /></svg>; }
 function CheckIcon({ className }: IconProps) { return <svg aria-hidden="true" className={`fill-none stroke-current ${className ?? ""}`} viewBox="0 0 16 16" strokeWidth="2.2"><path d="m3 8.5 3 3 7-7" /></svg>; }
 function AlertIcon({ className }: IconProps) { return <svg aria-hidden="true" className={`fill-none stroke-current ${className ?? ""}`} viewBox="0 0 24 24" strokeWidth="1.7"><path d="M12 3 2.8 20h18.4L12 3Z" /><path d="M12 9v5m0 3v.1" /></svg>; }
 function VolumeIcon({ className, muted }: IconProps & { muted: boolean }) { return <svg aria-hidden="true" className={`fill-none stroke-current ${className ?? ""}`} viewBox="0 0 24 24" strokeWidth="1.8"><path d="M5 9h4l4-4v14l-4-4H5V9Z" />{muted ? <path d="m17 9 4 6m0-6-4 6" /> : <><path d="M16 9.5a4 4 0 0 1 0 5" /><path d="M18.5 7a7.5 7.5 0 0 1 0 10" /></>}</svg>; }
 function ReplayIcon({ className, direction }: IconProps & { direction: "back" | "forward" }) { return <svg aria-hidden="true" className={`fill-none stroke-current ${className ?? ""}`} viewBox="0 0 24 24" strokeWidth="1.7"><path d={direction === "back" ? "M5 8V4m0 4h4M5.5 8A8 8 0 1 1 4 15" : "M19 8V4m0 4h-4m3.5 0A8 8 0 1 0 20 15"} /><text x="12" y="15" textAnchor="middle" className="fill-current stroke-none text-[7px] font-bold">10</text></svg>; }
-function TracksIcon({ className }: IconProps) { return <svg aria-hidden="true" className={`fill-none stroke-current ${className ?? ""}`} viewBox="0 0 24 24" strokeWidth="1.7"><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M7 10h4m-4 4h6m3-4h1m-1 4h1" /></svg>; }
 function PictureInPictureIcon({ className }: IconProps) { return <svg aria-hidden="true" className={`fill-none stroke-current ${className ?? ""}`} viewBox="0 0 24 24" strokeWidth="1.7"><rect x="3" y="5" width="18" height="14" rx="2" /><rect x="12" y="11" width="7" height="5" rx=".5" /></svg>; }
 function FullscreenIcon({ className, active }: IconProps & { active: boolean }) { return <svg aria-hidden="true" className={`fill-none stroke-current ${className ?? ""}`} viewBox="0 0 24 24" strokeWidth="1.8">{active ? <path d="M9 4v5H4m16 0h-5V4M4 15h5v5m6 0v-5h5" /> : <path d="M9 4H4v5m16 0V4h-5M4 15v5h5m6 0h5v-5" />}</svg>; }
+
+function SettingsIcon({ className }: IconProps) { return <svg aria-hidden="true" className={`fill-none stroke-current ${className ?? ""}`} viewBox="0 0 24 24" strokeWidth="1.7"><path d="M4 7h7m4 0h5M4 17h3m4 0h9"/><circle cx="13" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg>; }
+
+function ChevronIcon({ className }: IconProps) { return <svg aria-hidden="true" className={`fill-none stroke-current ${className ?? ""}`} viewBox="0 0 16 16" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="m6 3 5 5-5 5" /></svg>; }
+function AudioIcon({ className }: IconProps) { return <svg aria-hidden="true" className={`fill-none stroke-current ${className ?? ""}`} viewBox="0 0 24 24" strokeWidth="1.7"><path d="M4 14v-3a8 8 0 0 1 16 0v3"/><rect x="3" y="12" width="4" height="8" rx="2"/><rect x="17" y="12" width="4" height="8" rx="2"/></svg>; }
+function CaptionsIcon({ className }: IconProps) { return <svg aria-hidden="true" className={`fill-none stroke-current ${className ?? ""}`} viewBox="0 0 24 24" strokeWidth="1.7"><rect x="2" y="5" width="20" height="14" rx="3"/><path d="M10 10a2.5 2.5 0 1 0 0 4m8-4a2.5 2.5 0 1 0 0 4"/></svg>; }
+function SpeedIcon({ className }: IconProps) { return <svg aria-hidden="true" className={`fill-none stroke-current ${className ?? ""}`} viewBox="0 0 24 24" strokeWidth="1.7"><circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/></svg>; }
