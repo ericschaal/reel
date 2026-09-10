@@ -119,9 +119,13 @@ test("download actions become downloaded status for local media", async () => {
 });
 
 test("local movies and exact episodes activate Jellyfin playback", async () => {
-  const [playback, titleDetail, episodeDetail, nextConfig] = await Promise.all([
+  const [playback, videoPlayer, titleDetail, episodeDetail, nextConfig] = await Promise.all([
     readFile(
       new URL("../app/title/[kind]/[id]/playback.tsx", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../app/title/[kind]/[id]/video-player.tsx", import.meta.url),
       "utf8",
     ),
     readFile(
@@ -138,12 +142,80 @@ test("local movies and exact episodes activate Jellyfin playback", async () => {
   assert.match(playback, /fetch\("\/v1\/playback\/activate"/);
   assert.match(playback, /seriesTmdbId: media\.tmdbId/);
   assert.match(playback, /episodeNumber: episode\.episodeNumber/);
-  assert.match(playback, /void import\("hls\.js"\)/);
-  assert.match(playback, /<video/);
-  assert.doesNotMatch(playback, /exampleSources|Stremio/);
+  assert.match(videoPlayer, /void import\("hls\.js"\)/);
+  assert.match(videoPlayer, /<video/);
+  assert.doesNotMatch(`${playback}${videoPlayer}`, /exampleSources|Stremio/);
   assert.match(titleDetail, /disabled=\{!localCopy\}/);
   assert.match(episodeDetail, /disabled=\{!localCopy\}/);
   assert.match(nextConfig, /source: "\/v1\/playback\/:path\*"/);
+});
+
+test("custom player exposes complete playback and track controls", async () => {
+  const [player, playback] = await Promise.all([
+    readFile(
+      new URL("../app/title/[kind]/[id]/video-player.tsx", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../app/title/[kind]/[id]/playback.tsx", import.meta.url),
+      "utf8",
+    ),
+  ]);
+
+  assert.match(player, /aria-label="Seek through video"/);
+  assert.match(player, /aria-label="Volume"/);
+  assert.match(player, /Audio &amp; subtitles/);
+  assert.match(player, /hls\.audioTrack = id/);
+  assert.match(player, /hls\.subtitleTrack = id/);
+  assert.match(player, /hls\.subtitleDisplay = id !== -1/);
+  assert.match(player, /descriptorSubtitleTracks\.length/);
+  assert.match(player, /onSelectTracks/);
+  assert.match(playback, /subtitleStreamIndex/);
+  assert.match(player, /requestFullscreen/);
+  assert.match(player, /requestPictureInPicture/);
+  assert.match(player, /PLAYBACK_RATES/);
+});
+
+test("track changes keep the mounted player and swap its descriptor in place", async () => {
+  const [titleDetail, player] = await Promise.all([
+    readFile(
+      new URL("../app/title/[kind]/[id]/title-detail.tsx", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../app/title/[kind]/[id]/video-player.tsx", import.meta.url),
+      "utf8",
+    ),
+  ]);
+
+  assert.match(titleDetail, /async function selectPlaybackTracks/);
+  assert.match(titleDetail, /return await activateJellyfinPlayback/);
+  const trackActivation = titleDetail.slice(
+    titleDetail.indexOf("async function selectPlaybackTracks"),
+    titleDetail.indexOf("function openDownload"),
+  );
+  assert.match(trackActivation, /media,\s*episode,\s*undefined,/);
+  assert.doesNotMatch(trackActivation, /media,\s*episode,\s*resumeSeconds,/);
+  assert.doesNotMatch(
+    titleDetail,
+    /onSelectTracks=\{\(resumeSeconds, selection\) =>\s*playLocal/,
+  );
+  assert.match(player, /useState\(playback\.descriptor\)/);
+  assert.match(player, /await onSelectTracks/);
+  assert.match(player, /setDescriptor\(nextDescriptor\)/);
+  assert.match(player, /canvasRef/);
+  assert.match(player, /drawImage\(video/);
+  assert.match(player, /requestVideoFrameCallback/);
+  assert.match(player, /isBuffering \|\| isSwitchingTracks/);
+  const trackSwap = player.slice(
+    player.indexOf("const switchDescriptorTracks"),
+    player.indexOf("const toggleSubtitles"),
+  );
+  assert.ok(
+    trackSwap.indexOf("captureCurrentFrame()") <
+      trackSwap.indexOf("await onSelectTracks"),
+  );
+  assert.doesNotMatch(player, /setHasFrozenFrame/);
 });
 
 test("all secondary pages use the shared navigation header", async () => {

@@ -32,5 +32,8 @@ When native HLS is unavailable, `hls.js` is loaded on demand after activation.
 
 - Playback sessions are local to one API process and do not survive restarts.
 - Reel does not yet persist progress or report playback progress to Jellyfin.
-- Audio and subtitle source selection is left to the negotiated/default stream.
+- Playback descriptors include Jellyfin's normalized audio and subtitle stream
+  lists. Choosing a stream re-negotiates playback at the current position with
+  that exact Jellyfin stream index; HLS-native tracks remain available as a
+  fallback when upstream metadata is absent.
 - Stremio sources and automatic remote fallback remain out of scope.

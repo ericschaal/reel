@@ -83,8 +83,8 @@ impl Playback {
         let user_id = self.user_id().await?;
         let start_time_ticks = request
             .start_position_seconds
-            .and_then(|seconds| i64::try_from(seconds).ok())
-            .and_then(|seconds| seconds.checked_mul(TICKS_PER_SECOND));
+            .map(seconds_to_ticks)
+            .transpose()?;
         let playback = self
             .jellyfin
             .playback_info(
@@ -93,8 +93,13 @@ impl Playback {
                 &PlaybackInfoRequest {
                     max_streaming_bitrate: request.capabilities.max_streaming_bitrate,
                     start_time_ticks,
+                    audio_stream_index: request.audio_stream_index,
+                    subtitle_stream_index: request.subtitle_stream_index,
                     device_profile: Some(web_device_profile(&request.capabilities)),
-                    enable_direct_play: Some(true),
+                    enable_direct_play: Some(
+                        request.audio_stream_index.is_none()
+                            && request.subtitle_stream_index.is_none(),
+                    ),
                     enable_direct_stream: Some(true),
                     enable_transcoding: Some(request.capabilities.hls),
                     allow_video_stream_copy: Some(true),
@@ -114,6 +119,12 @@ impl Playback {
             .transcoding_container
             .clone()
             .or_else(|| source.container.clone());
+        let audio_tracks = playback_tracks(source, "Audio");
+        let subtitle_tracks = playback_tracks(source, "Subtitle");
+        let selected_audio_index = request
+            .audio_stream_index
+            .or(source.default_audio_stream_index);
+        let selected_subtitle_index = request.subtitle_stream_index;
 
         self.remove_expired_sessions().await;
         self.sessions.write().await.insert(
@@ -132,6 +143,10 @@ impl Playback {
             media_url: format!("/v1/playback/sessions/{session_id}/media"),
             container,
             duration_seconds,
+            audio_tracks,
+            subtitle_tracks,
+            selected_audio_index,
+            selected_subtitle_index,
         })
     }
 
@@ -421,6 +436,36 @@ fn provider_tmdb_id(item: &Item) -> Option<TmdbId> {
         .and_then(|(_, id)| id.parse().ok())
 }
 
+fn seconds_to_ticks(seconds: f64) -> Result<i64, Error> {
+    let max_seconds = i64::MAX as f64 / TICKS_PER_SECOND as f64;
+    if !seconds.is_finite() || seconds < 0.0 || seconds > max_seconds {
+        return Err(Error::InvalidStartPosition);
+    }
+    Ok((seconds * TICKS_PER_SECOND as f64).round() as i64)
+}
+
+fn playback_tracks(source: &MediaSource, stream_type: &str) -> Vec<PlaybackTrack> {
+    source
+        .media_streams
+        .iter()
+        .filter(|stream| stream.stream_type.eq_ignore_ascii_case(stream_type))
+        .map(|stream| PlaybackTrack {
+            index: stream.index,
+            label: stream
+                .display_title
+                .clone()
+                .or_else(|| stream.title.clone())
+                .or_else(|| stream.language.clone())
+                .or_else(|| stream.codec.clone())
+                .unwrap_or_else(|| format!("{stream_type} {}", stream.index)),
+            language: stream.language.clone(),
+            codec: stream.codec.clone(),
+            is_default: stream.is_default,
+            is_forced: stream.is_forced,
+        })
+        .collect()
+}
+
 fn choose_source<'a>(
     jellyfin: &Jellyfin,
     item_id: &str,
@@ -527,7 +572,9 @@ struct ActivationRequest {
     target: PlaybackTarget,
     #[serde(default)]
     capabilities: PlayerCapabilities,
-    start_position_seconds: Option<u64>,
+    start_position_seconds: Option<f64>,
+    audio_stream_index: Option<i32>,
+    subtitle_stream_index: Option<i32>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -599,6 +646,21 @@ struct PlaybackDescriptor {
     media_url: String,
     container: Option<String>,
     duration_seconds: Option<u64>,
+    audio_tracks: Vec<PlaybackTrack>,
+    subtitle_tracks: Vec<PlaybackTrack>,
+    selected_audio_index: Option<i32>,
+    selected_subtitle_index: Option<i32>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PlaybackTrack {
+    index: i32,
+    label: String,
+    language: Option<String>,
+    codec: Option<String>,
+    is_default: bool,
+    is_forced: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -626,6 +688,8 @@ pub enum Error {
     SessionNotFound,
     #[error("the playback resource is invalid")]
     InvalidResource,
+    #[error("the playback start position is invalid")]
+    InvalidStartPosition,
     #[error("Jellyfin returned an invalid playback response")]
     InvalidUpstreamResponse,
     #[error(transparent)]
@@ -654,6 +718,11 @@ impl IntoResponse for Error {
                 StatusCode::BAD_REQUEST,
                 "invalid_playback_resource",
                 "The playback resource is invalid",
+            ),
+            Self::InvalidStartPosition => (
+                StatusCode::BAD_REQUEST,
+                "invalid_playback_position",
+                "The playback start position must be a finite non-negative number",
             ),
             Self::UserNotFound | Self::InvalidUpstreamResponse | Self::Jellyfin(_) => (
                 StatusCode::BAD_GATEWAY,

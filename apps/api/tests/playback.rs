@@ -132,7 +132,15 @@ async fn mock_jellyfin(
                 "Id":"episode-source","Container":"mkv","RunTimeTicks":36000000000_i64,
                 "SupportsDirectPlay":false,"SupportsDirectStream":true,"SupportsTranscoding":true,
                 "TranscodingUrl":"/Videos/jf-episode/master.m3u8?ApiKey=secret-api-key",
-                "TranscodingContainer":"ts"
+                "TranscodingContainer":"ts",
+                "DefaultAudioStreamIndex":1,
+                "DefaultSubtitleStreamIndex":4,
+                "MediaStreams":[
+                    {"Index":1,"Type":"Audio","DisplayTitle":"English · Dolby Digital 5.1","Language":"eng","Codec":"eac3","IsDefault":true,"IsForced":false,"IsExternal":false},
+                    {"Index":2,"Type":"Audio","DisplayTitle":"French · AAC Stereo","Language":"fra","Codec":"aac","IsDefault":false,"IsForced":false,"IsExternal":false},
+                    {"Index":3,"Type":"Subtitle","DisplayTitle":"English","Language":"eng","Codec":"subrip","IsDefault":false,"IsForced":false,"IsExternal":false},
+                    {"Index":4,"Type":"Subtitle","DisplayTitle":"French (Forced)","Language":"fra","Codec":"subrip","IsDefault":true,"IsForced":true,"IsExternal":false}
+                ]
             }],
             "PlaySessionId":"episode-play"
         }))
@@ -207,11 +215,16 @@ async fn activates_the_exact_episode_and_scopes_its_hls_resources() {
                 "seasonNumber":2,"episodeNumber":3
             },
             "capabilities":capabilities(),
-            "startPositionSeconds":90
+            "startPositionSeconds":3.705481155982247
         }))
         .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(descriptor["delivery"], "hls");
+    assert_eq!(descriptor["audioTracks"].as_array().unwrap().len(), 2);
+    assert_eq!(descriptor["subtitleTracks"].as_array().unwrap().len(), 2);
+    assert_eq!(descriptor["subtitleTracks"][0]["index"], 3);
+    assert_eq!(descriptor["subtitleTracks"][1]["label"], "French (Forced)");
+    assert!(descriptor["selectedSubtitleIndex"].is_null());
 
     let response = fixture
         .get(descriptor["mediaUrl"].as_str().unwrap(), None)

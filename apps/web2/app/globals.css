@@ -33,6 +33,71 @@
     background: var(--color-accent);
     color: var(--color-background);
   }
+
+  .player-range {
+    --range-progress: 0%;
+    appearance: none;
+    height: 18px;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .player-range::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 999px;
+    background: linear-gradient(
+      to right,
+      var(--color-accent) 0 var(--range-progress),
+      rgb(255 255 255 / 0.28) var(--range-progress) 100%
+    );
+  }
+
+  .player-range::-moz-range-track {
+    height: 4px;
+    border-radius: 999px;
+    background: linear-gradient(
+      to right,
+      var(--color-accent) 0 var(--range-progress),
+      rgb(255 255 255 / 0.28) var(--range-progress) 100%
+    );
+  }
+
+  .player-range::-webkit-slider-thumb {
+    appearance: none;
+    width: 15px;
+    height: 15px;
+    margin-top: -5.5px;
+    border: 0;
+    border-radius: 999px;
+    background: white;
+    box-shadow: 0 1px 8px rgb(0 0 0 / 0.55);
+    transform: scale(0.75);
+    transition: transform 150ms ease;
+  }
+
+  .player-range::-moz-range-thumb {
+    width: 15px;
+    height: 15px;
+    border: 0;
+    border-radius: 999px;
+    background: white;
+    box-shadow: 0 1px 8px rgb(0 0 0 / 0.55);
+  }
+
+  .player-range:hover::-webkit-slider-thumb,
+  .player-range:focus-visible::-webkit-slider-thumb {
+    transform: scale(1);
+  }
+
+  .player-progress-range:hover::-webkit-slider-runnable-track,
+  .player-progress-range:focus-visible::-webkit-slider-runnable-track {
+    height: 6px;
+  }
+
+  .player-range:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 3px;
+  }
 }
 
 @layer components {

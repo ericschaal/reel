@@ -23,6 +23,7 @@ import { NextUp, SeriesHierarchy } from "./episodes";
 import {
   activateJellyfinPlayback,
   type ActivePlayback,
+  type PlaybackTrackSelection,
   DownloadIcon,
   DownloadedStatus,
   PlaybackControl,
@@ -86,7 +87,11 @@ export function TitleDetail({
     setSeasonNumber(nextSeasonNumber);
   }
 
-  function playLocal(resumeSeconds?: number, episode = nextEpisode ?? undefined) {
+  function playLocal(
+    resumeSeconds?: number,
+    episode = nextEpisode ?? undefined,
+    trackSelection: PlaybackTrackSelection = {},
+  ) {
     activation.current?.abort();
     const controller = new AbortController();
     activation.current = controller;
@@ -94,12 +99,14 @@ export function TitleDetail({
       status: "loading",
       resumeSeconds,
       episode,
+      ...trackSelection,
     });
     void activateJellyfinPlayback(
       media,
       episode,
-      resumeSeconds,
+      undefined,
       controller.signal,
+      trackSelection,
     )
       .then((descriptor) => {
         if (activation.current === controller) {
@@ -108,6 +115,7 @@ export function TitleDetail({
             descriptor,
             resumeSeconds,
             episode,
+            ...trackSelection,
           });
         }
       })
@@ -121,6 +129,7 @@ export function TitleDetail({
               : "Jellyfin playback could not be started.",
           resumeSeconds,
           episode,
+          ...trackSelection,
         });
       });
   }
@@ -129,6 +138,27 @@ export function TitleDetail({
     activation.current?.abort();
     activation.current = null;
     setActivePlayback(null);
+  }
+
+  async function selectPlaybackTracks(
+    _resumeSeconds: number,
+    episode: Episode | undefined,
+    selection: PlaybackTrackSelection,
+  ) {
+    activation.current?.abort();
+    const controller = new AbortController();
+    activation.current = controller;
+    try {
+      return await activateJellyfinPlayback(
+        media,
+        episode,
+        undefined,
+        controller.signal,
+        selection,
+      );
+    } finally {
+      if (activation.current === controller) activation.current = null;
+    }
   }
 
   function openDownload() {
@@ -159,7 +189,17 @@ export function TitleDetail({
         playback={activePlayback}
         onBack={closePlayback}
         onRetry={() =>
-          playLocal(activePlayback.resumeSeconds, activePlayback.episode)
+          playLocal(activePlayback.resumeSeconds, activePlayback.episode, {
+            audioStreamIndex: activePlayback.audioStreamIndex,
+            subtitleStreamIndex: activePlayback.subtitleStreamIndex,
+          })
+        }
+        onSelectTracks={(resumeSeconds, selection) =>
+          selectPlaybackTracks(
+            resumeSeconds,
+            activePlayback.episode,
+            selection,
+          )
         }
       />
     );
