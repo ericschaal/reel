@@ -41,6 +41,21 @@ test("media facts and rating occupy separate artwork zones", async () => {
   assert.match(source, /variant="overlay"/);
 });
 
+test("episode rows keep content stationary and promote the air date", async () => {
+  const source = await readFile(
+    new URL("../app/title/[kind]/[id]/title-detail.tsx", import.meta.url),
+    "utf8",
+  );
+  const episodeList = source.slice(
+    source.indexOf("function SeriesHierarchy"),
+    source.indexOf("function SeasonSelector"),
+  );
+
+  assert.doesNotMatch(episodeList, /group-hover:translate-x/);
+  assert.match(source, /<CalendarIcon \/>/);
+  assert.match(source, /formatAirDate\(episode\.airDate\)/);
+});
+
 test("collection links preserve opaque cursors and language", () => {
   const href =
     "/v1/catalogue/collections/studios/2?language=fr&cursor=eyJwYWdlIjoyfQ%3D%3D";

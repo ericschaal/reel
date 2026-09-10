@@ -416,12 +416,12 @@ function SeriesHierarchy({
                     </span>
                   ) : null}
                 </span>
-                <span className="pointer-events-none grid min-w-0 content-center gap-2 transition-transform group-hover:translate-x-0.5">
+                <span className="pointer-events-none grid min-w-0 content-center gap-2.5">
                   <span className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                     <span className="font-mono text-xs text-accent">
                       E{episode.episodeNumber}
                     </span>
-                    <strong className="font-semibold [overflow-wrap:anywhere]">
+                    <strong className="font-semibold [overflow-wrap:anywhere] transition-colors group-hover:text-accent">
                       {episode.title}
                     </strong>
                   </span>
@@ -489,15 +489,49 @@ function SeasonSelector({
 
 function EpisodeMetadata({ episode }: { episode: Episode }) {
   return (
-    <span className="flex flex-wrap items-center gap-2 text-xs text-muted">
-      <span>{episode.airDate ?? "Air date unavailable"}</span>
+    <span className="flex flex-wrap items-center gap-1.5 text-xs text-muted">
+      <span
+        className="inline-flex min-h-6 items-center gap-1.5 rounded-full border border-white/10 bg-white/6 px-2.5 py-1 font-medium text-ink/85"
+        aria-label={episode.airDate ? `Aired ${formatAirDate(episode.airDate)}` : "Air date unavailable"}
+      >
+        <CalendarIcon />
+        <span>{episode.airDate ? formatAirDate(episode.airDate) : "Air date unavailable"}</span>
+      </span>
       {episode.runtimeMinutes != null ? (
-        <><span aria-hidden="true">·</span><span>{episode.runtimeMinutes} min</span></>
+        <span className="inline-flex min-h-6 items-center rounded-full px-2 py-1 font-medium text-ink/65">
+          {episode.runtimeMinutes} min
+        </span>
       ) : null}
       {episode.rating != null ? (
-        <><span aria-hidden="true">·</span><RatingBadge rating={episode.rating} variant="chip" /></>
+        <RatingBadge rating={episode.rating} variant="chip" />
       ) : null}
     </span>
+  );
+}
+
+function formatAirDate(value: string) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return value;
+  const [, year, month, day] = match;
+  return new Intl.DateTimeFormat("en", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(Date.UTC(Number(year), Number(month) - 1, Number(day))));
+}
+
+function CalendarIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="size-3.5 shrink-0 fill-none stroke-current"
+      viewBox="0 0 16 16"
+      strokeWidth="1.5"
+    >
+      <rect x="2.5" y="3.5" width="11" height="10" rx="2" />
+      <path d="M5 2v3M11 2v3M2.5 7h11" />
+    </svg>
   );
 }
 
