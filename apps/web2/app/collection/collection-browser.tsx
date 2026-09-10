@@ -15,7 +15,7 @@ import {
   CardSkeletons,
   EmptyState,
   Eyebrow,
-  Header,
+  NavigationHeader,
   pageGutter,
 } from "../ui";
 
@@ -66,7 +66,7 @@ export function CollectionBrowser({ initialHref }: { initialHref: string }) {
 
   return (
     <div className="min-h-dvh bg-[radial-gradient(ellipse_at_15%_0%,#233336_0%,transparent_40%)]">
-      <Header />
+      <NavigationHeader href="/" label="Back to catalogue" />
       <main
         id="main-content"
         className={`mx-auto max-w-[1600px] pb-16 [overflow-anchor:none] ${pageGutter}`}

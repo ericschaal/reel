@@ -43,17 +43,39 @@ test("media facts and rating occupy separate artwork zones", async () => {
 
 test("episode rows keep content stationary and promote the air date", async () => {
   const source = await readFile(
-    new URL("../app/title/[kind]/[id]/title-detail.tsx", import.meta.url),
+    new URL("../app/title/[kind]/[id]/episodes.tsx", import.meta.url),
     "utf8",
   );
   const episodeList = source.slice(
-    source.indexOf("function SeriesHierarchy"),
-    source.indexOf("function SeasonSelector"),
+    source.indexOf("export function SeriesHierarchy"),
+    source.indexOf("export function SeasonSelector"),
   );
 
   assert.doesNotMatch(episodeList, /group-hover:translate-x/);
   assert.match(source, /<CalendarIcon \/>/);
   assert.match(source, /formatAirDate\(episode\.airDate\)/);
+});
+
+test("all secondary pages use the shared navigation header", async () => {
+  const [ui, collection, title] = await Promise.all([
+    readFile(new URL("../app/ui.tsx", import.meta.url), "utf8"),
+    readFile(
+      new URL("../app/collection/collection-browser.tsx", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../app/title/[kind]/[id]/title-detail.tsx", import.meta.url),
+      "utf8",
+    ),
+  ]);
+
+  assert.match(ui, /export function NavigationHeader/);
+  assert.match(
+    collection,
+    /<NavigationHeader href="\/" label="Back to catalogue" \/>/,
+  );
+  assert.match(title, /<NavigationHeader href="\/" label="Back to catalogue" \/>/);
+  assert.doesNotMatch(title, /function NavigationHeader/);
 });
 
 test("collection links preserve opaque cursors and language", () => {

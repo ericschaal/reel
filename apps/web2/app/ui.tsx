@@ -54,6 +54,50 @@ export function Header({
   );
 }
 
+export function NavigationHeader({
+  label,
+  href,
+  onBack,
+}: {
+  label: string;
+  href?: string;
+  onBack?: () => void;
+}) {
+  const backClass =
+    "inline-flex min-h-12 items-center gap-3 rounded-full border border-white/15 bg-white/8 pr-5 pl-3 text-sm font-semibold text-ink shadow-lg transition-colors hover:border-accent/60 hover:bg-white/12";
+  const content = (
+    <>
+      <span className="grid size-7 place-items-center rounded-full bg-white/10">
+        <BackIcon />
+      </span>
+      {label}
+    </>
+  );
+
+  return (
+    <header
+      className={`sticky top-0 z-40 flex min-h-20 items-center justify-between border-b border-white/10 bg-background/85 py-3 backdrop-blur-2xl ${pageGutter}`}
+    >
+      {href ? (
+        <Link className={backClass} href={href}>
+          {content}
+        </Link>
+      ) : (
+        <button type="button" className={backClass} onClick={onBack}>
+          {content}
+        </button>
+      )}
+      <Link
+        className="text-sm font-extrabold tracking-[0.28em] text-accent"
+        href="/"
+        aria-label="Reel home"
+      >
+        REEL
+      </Link>
+    </header>
+  );
+}
+
 export function Eyebrow({ children }: { children: ReactNode }) {
   return (
     <p className="mb-4 font-mono text-xs font-semibold tracking-[0.16em] text-accent uppercase">
@@ -103,4 +147,17 @@ export function CardSkeletons({
       <div className="mt-2 h-3 w-1/2 rounded bg-white/5" />
     </div>
   ));
+}
+
+function BackIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="size-4 fill-none stroke-current"
+      viewBox="0 0 16 16"
+      strokeWidth="1.8"
+    >
+      <path d="m9.5 3.5-4.5 4.5 4.5 4.5M5.5 8H13" />
+    </svg>
+  );
 }
