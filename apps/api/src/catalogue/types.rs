@@ -10,11 +10,46 @@ pub enum Surface {
     Series,
 }
 
+impl Surface {
+    pub(super) const fn as_str(self) -> &'static str {
+        match self {
+            Self::Discover => "discover",
+            Self::Movies => "movies",
+            Self::Series => "series",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogueResponse {
     pub surface: Surface,
     pub sections: Vec<CatalogueSection>,
+    #[serde(default)]
+    pub issues: Vec<CatalogueIssue>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogueManifest {
+    pub surface: Surface,
+    pub rails: Vec<CatalogueRailDescriptor>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogueRailDescriptor {
+    pub id: String,
+    pub title: String,
+    pub layout: SectionLayout,
+    pub items_href: String,
+    pub item_count_hint: usize,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CatalogueRailResponse {
+    pub section: CatalogueSection,
     #[serde(default)]
     pub issues: Vec<CatalogueIssue>,
 }

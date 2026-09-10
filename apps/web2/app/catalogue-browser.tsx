@@ -3,9 +3,13 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import {
-  type CatalogueResponse,
+  type CatalogueManifest,
+  type CatalogueRailResponse,
+  type CatalogueSection,
   type Surface,
+  catalogueRailProxyHref,
   collectionHref,
+  mapWithConcurrency,
 } from "./catalogue";
 import { CatalogueCard } from "./media-card";
 import {
@@ -27,7 +31,10 @@ const surfaces: { id: Surface; label: string }[] = [
 const rowClass = `grid grid-flow-col gap-4 overflow-x-auto overscroll-x-contain scroll-px-5 sm:scroll-px-8 lg:scroll-px-12 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden snap-x snap-proximity pt-1 pb-5 sm:gap-5 ${pageGutter}`;
 
 export function CatalogueBrowser({ surface }: { surface: Surface }) {
-  const [catalogue, setCatalogue] = useState<CatalogueResponse | null>(null);
+  const [manifest, setManifest] = useState<CatalogueManifest | null>(null);
+  const [rails, setRails] = useState<
+    Record<string, { section?: CatalogueSection; error?: string }>
+  >({});
   const [error, setError] = useState<string | null>(null);
   const [requestKey, setRequestKey] = useState(0);
 
@@ -35,16 +42,54 @@ export function CatalogueBrowser({ surface }: { surface: Surface }) {
     const controller = new AbortController();
     async function load() {
       try {
+        setManifest(null);
+        setRails({});
+        setError(null);
         const response = await fetch(
-          `/api/reel/v1/catalogue/${surface}?language=en`,
+          `/api/reel/v1/catalogue/${surface}/manifest?language=en`,
           { signal: controller.signal },
         );
         if (!response.ok)
           throw new Error(
             "The catalogue is unavailable right now. Please try again.",
           );
-        const data: CatalogueResponse = await response.json();
-        if (!controller.signal.aborted) setCatalogue(data);
+        const data: CatalogueManifest = await response.json();
+        if (controller.signal.aborted) return;
+        setManifest(data);
+
+        await mapWithConcurrency(data.rails, 3, async (rail) => {
+          const url = catalogueRailProxyHref(rail.itemsHref);
+          if (!url) {
+            setRails((current) => ({
+              ...current,
+              [rail.id]: { error: "This catalogue rail has an invalid URL." },
+            }));
+            return;
+          }
+          try {
+            const railResponse = await fetch(url, {
+              signal: controller.signal,
+            });
+            if (!railResponse.ok) throw new Error("This rail is unavailable.");
+            const railData: CatalogueRailResponse = await railResponse.json();
+            if (!controller.signal.aborted)
+              setRails((current) => ({
+                ...current,
+                [rail.id]: { section: railData.section },
+              }));
+          } catch (reason) {
+            if (!controller.signal.aborted)
+              setRails((current) => ({
+                ...current,
+                [rail.id]: {
+                  error:
+                    reason instanceof Error
+                      ? reason.message
+                      : "This rail is unavailable.",
+                },
+              }));
+          }
+        });
       } catch (reason) {
         if (!controller.signal.aborted)
           setError(
@@ -88,52 +133,75 @@ export function CatalogueBrowser({ surface }: { surface: Surface }) {
                 : "Series"}
           </h1>
         </section>
-        {catalogue ? (
+        {manifest ? (
           <div className="grid gap-10 sm:gap-14">
-            {catalogue.sections.map((section, sectionIndex) => (
-              <section
-                className="min-w-0"
-                key={section.id}
-                aria-labelledby={`section-${section.id}`}
-              >
-                <div
-                  className={`mb-3 flex items-center justify-between gap-4 ${pageGutter}`}
+            {manifest.rails.map((rail, sectionIndex) => {
+              const state = rails[rail.id];
+              const section = state?.section;
+              return (
+                <section
+                  className="min-w-0"
+                  key={rail.id}
+                  aria-labelledby={`section-${rail.id}`}
+                  aria-busy={!section && !state?.error}
                 >
-                  <h2
-                    id={`section-${section.id}`}
-                    className="text-xl font-semibold tracking-tight sm:text-2xl"
+                  <div
+                    className={`mb-3 flex items-center justify-between gap-4 ${pageGutter}`}
                   >
-                    {section.title}
-                  </h2>
-                  {section.href ? (
-                    <Link
-                      className="inline-flex min-h-11 shrink-0 items-center gap-2 text-sm text-muted hover:text-accent"
-                      href={collectionHref(section.href)}
-                      aria-label={`View all ${section.title}`}
+                    <h2
+                      id={`section-${rail.id}`}
+                      className="text-xl font-semibold tracking-tight sm:text-2xl"
                     >
-                      View all <span aria-hidden="true">→</span>
-                    </Link>
-                  ) : null}
-                </div>
-                <div
-                  className={
-                    section.layout === "backdrop"
-                      ? `${rowClass} auto-cols-[82%] sm:auto-cols-[340px] lg:auto-cols-[420px]`
-                      : `${rowClass} auto-cols-[44%] sm:auto-cols-[180px] lg:auto-cols-[210px]`
-                  }
-                >
-                  {section.items.map((item, itemIndex) => (
-                    <CatalogueCard
-                      key={`${item.kind}-${item.id}`}
-                      item={item}
-                      layout={section.layout}
-                      priority={sectionIndex === 0 && itemIndex < 4}
-                    />
-                  ))}
-                </div>
-              </section>
-            ))}
-            {catalogue.sections.length === 0 ? (
+                      {rail.title}
+                    </h2>
+                    {section?.href ? (
+                      <Link
+                        className="inline-flex min-h-11 shrink-0 items-center gap-2 text-sm text-muted hover:text-accent"
+                        href={collectionHref(section.href)}
+                        aria-label={`View all ${section.title}`}
+                      >
+                        View all <span aria-hidden="true">→</span>
+                      </Link>
+                    ) : null}
+                  </div>
+                  <div
+                    className={
+                      rail.layout === "backdrop"
+                        ? `${rowClass} auto-cols-[82%] sm:auto-cols-[340px] lg:auto-cols-[420px]`
+                        : `${rowClass} auto-cols-[44%] sm:auto-cols-[180px] lg:auto-cols-[210px]`
+                    }
+                  >
+                    {section ? (
+                      section.items.map((item, itemIndex) => (
+                        <CatalogueCard
+                          key={`${item.kind}-${item.id}`}
+                          item={item}
+                          layout={section.layout}
+                          priority={sectionIndex === 0 && itemIndex < 2}
+                        />
+                      ))
+                    ) : state?.error ? (
+                      <div className="col-span-2 grid min-h-40 content-center gap-3 rounded-xl border border-line bg-panel/60 p-5 text-sm text-muted">
+                        <p>{state.error}</p>
+                        <button
+                          className={`${buttonClass} w-fit`}
+                          type="button"
+                          onClick={() => setRequestKey((key) => key + 1)}
+                        >
+                          Try again
+                        </button>
+                      </div>
+                    ) : (
+                      <CardSkeletons
+                        count={Math.min(rail.itemCountHint, 6)}
+                        layout={rail.layout}
+                      />
+                    )}
+                  </div>
+                </section>
+              );
+            })}
+            {manifest.rails.length === 0 ? (
               <EmptyState title="Nothing to show yet">
                 Check back soon for movies and series.
               </EmptyState>

@@ -1,8 +1,18 @@
-use std::path::Path;
+use std::{
+    path::Path,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::Duration,
+};
 
 use axum::{
+    Json, Router,
     body::{Body, to_bytes},
+    extract::State,
     http::{Request, StatusCode},
+    routing::get as route_get,
 };
 use reel_api::{
     app,
@@ -33,6 +43,13 @@ fn clients() -> (Seerr, Jellyfin) {
     .expect("create Jellyfin client");
 
     (seerr, jellyfin)
+}
+
+fn unavailable_clients() -> (Seerr, Jellyfin) {
+    (
+        Seerr::new("http://127.0.0.1:1", "unused").expect("create unavailable Seerr client"),
+        Jellyfin::new("http://127.0.0.1:1", "unused").expect("create unavailable Jellyfin client"),
+    )
 }
 
 async fn get(application: axum::Router, path: &str) -> axum::response::Response {
@@ -83,6 +100,140 @@ async fn serves_seerr_catalogue_when_jellyfin_enrichment_is_unavailable() {
         "the response should disclose unavailable Jellyfin enrichment"
     );
     assert_surface(&catalogue, Surface::Movies);
+}
+
+#[tokio::test]
+async fn manifest_declares_stable_ordered_rail_urls_without_contacting_upstreams() {
+    let (seerr, jellyfin) = unavailable_clients();
+    let response = get(
+        app(Catalogue::new(seerr, jellyfin)),
+        "/v1/catalogue/discover/manifest?language=fr-FR",
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = to_bytes(response.into_body(), 1024 * 1024)
+        .await
+        .expect("read manifest response");
+    let manifest: reel_api::catalogue::CatalogueManifest =
+        serde_json::from_slice(&body).expect("decode catalogue manifest");
+    assert_eq!(manifest.surface, Surface::Discover);
+    assert_eq!(
+        manifest
+            .rails
+            .iter()
+            .map(|rail| rail.id.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "trending",
+            "popular-movies",
+            "popular-series",
+            "movie-genres",
+            "studios",
+            "series-genres",
+            "networks",
+        ]
+    );
+    assert!(manifest.rails.iter().all(|rail| {
+        rail.items_href
+            .ends_with(&format!("/rails/{}?language=fr-FR", rail.id))
+    }));
+}
+
+#[tokio::test]
+async fn curated_rail_loads_independently_without_contacting_upstreams() {
+    let (seerr, jellyfin) = unavailable_clients();
+    let response = get(
+        app(Catalogue::new(seerr, jellyfin)),
+        "/v1/catalogue/discover/rails/studios?language=en",
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = to_bytes(response.into_body(), 1024 * 1024)
+        .await
+        .expect("read rail response");
+    let rail: reel_api::catalogue::CatalogueRailResponse =
+        serde_json::from_slice(&body).expect("decode catalogue rail");
+    assert_eq!(rail.section.id, "studios");
+    assert!(!rail.section.items.is_empty());
+}
+
+#[tokio::test]
+async fn fast_rail_finishes_without_waiting_for_slow_rail_and_shares_availability_refresh() {
+    let jellyfin_requests = Arc::new(AtomicUsize::new(0));
+    let upstream = Router::new()
+        .route("/api/v1/discover/trending", route_get(mock_trending))
+        .route("/api/v1/discover/movies", route_get(mock_popular))
+        .route("/Items", route_get(mock_jellyfin_movies))
+        .with_state(jellyfin_requests.clone());
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind mock upstream");
+    let address = listener.local_addr().expect("mock upstream address");
+    let server = tokio::spawn(async move {
+        axum::serve(listener, upstream)
+            .await
+            .expect("serve mock upstream");
+    });
+    let base_url = format!("http://{address}");
+    let catalogue = Catalogue::new(
+        Seerr::new(&base_url, "unused").expect("create mock Seerr client"),
+        Jellyfin::new(&base_url, "unused").expect("create mock Jellyfin client"),
+    );
+    let application = app(catalogue);
+
+    let trending = tokio::spawn(get(
+        application.clone(),
+        "/v1/catalogue/movies/rails/trending-movies",
+    ));
+    let popular = tokio::spawn(get(
+        application,
+        "/v1/catalogue/movies/rails/popular-movies",
+    ));
+    let trending = tokio::time::timeout(Duration::from_millis(100), trending)
+        .await
+        .expect("fast rail should not wait for slow rail")
+        .expect("join fast rail request");
+    let popular = popular.await.expect("join slow rail request");
+    server.abort();
+
+    assert_eq!(trending.status(), StatusCode::OK);
+    assert_eq!(popular.status(), StatusCode::OK);
+    assert_eq!(jellyfin_requests.load(Ordering::SeqCst), 1);
+}
+
+async fn mock_trending() -> Json<serde_json::Value> {
+    tokio::time::sleep(Duration::from_millis(5)).await;
+    mock_movies()
+}
+
+async fn mock_popular() -> Json<serde_json::Value> {
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    mock_movies()
+}
+
+fn mock_movies() -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "page": 1,
+        "totalPages": 1,
+        "totalResults": 1,
+        "results": [{
+            "id": 42,
+            "mediaType": "movie",
+            "title": "Mock Movie"
+        }]
+    }))
+}
+
+async fn mock_jellyfin_movies(State(requests): State<Arc<AtomicUsize>>) -> Json<serde_json::Value> {
+    requests.fetch_add(1, Ordering::SeqCst);
+    tokio::time::sleep(Duration::from_millis(25)).await;
+    Json(serde_json::json!({
+        "Items": [{"Id": "jellyfin-42", "ProviderIds": {"Tmdb": "42"}}],
+        "TotalRecordCount": 1,
+        "StartIndex": 0
+    }))
 }
 
 #[tokio::test]

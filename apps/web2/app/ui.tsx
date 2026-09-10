@@ -79,14 +79,22 @@ export function EmptyState({
   );
 }
 
-export function CardSkeletons({ count = 6 }: { count?: number }) {
+export function CardSkeletons({
+  count = 6,
+  layout = "poster",
+}: {
+  count?: number;
+  layout?: "poster" | "backdrop";
+}) {
   return Array.from({ length: count }, (_, index) => (
     <div
       key={index}
       className="min-w-0 motion-safe:animate-pulse"
       aria-hidden="true"
     >
-      <div className="aspect-[2/3] rounded-xl bg-white/5" />
+      <div
+        className={`${layout === "backdrop" ? "aspect-video" : "aspect-[2/3]"} rounded-xl bg-white/5`}
+      />
       <div className="mt-3 h-4 w-3/4 rounded bg-white/5" />
       <div className="mt-2 h-3 w-1/2 rounded bg-white/5" />
     </div>

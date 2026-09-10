@@ -1,5 +1,8 @@
+"use client";
+
 import Image from "next/image";
 import Link from "next/link";
+import { useState } from "react";
 import { type CatalogueItem, collectionHref, titleHref } from "./catalogue";
 
 // Artwork comes from connected services; keep their URLs intact without routing
@@ -13,16 +16,29 @@ export function Artwork({
   sizes: string;
   priority?: boolean;
 }) {
-  return src ? (
-    <Image
-      src={src}
-      alt=""
-      fill
-      sizes={sizes}
-      unoptimized
-      loading={priority ? "eager" : "lazy"}
-      className="object-cover"
-    />
+  const [loaded, setLoaded] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  return src && !failed ? (
+    <>
+      <span
+        aria-hidden="true"
+        className={`absolute inset-0 bg-linear-to-br from-slate-700 to-panel transition-opacity duration-300 ${loaded ? "opacity-0" : "opacity-100"}`}
+      />
+      <Image
+        src={src}
+        alt=""
+        fill
+        sizes={sizes}
+        unoptimized
+        decoding="async"
+        preload={priority}
+        loading={priority ? undefined : "lazy"}
+        onLoad={() => setLoaded(true)}
+        onError={() => setFailed(true)}
+        className={`object-cover transition-opacity duration-300 ${loaded ? "opacity-100" : "opacity-0"}`}
+      />
+    </>
   ) : (
     <span
       aria-hidden="true"

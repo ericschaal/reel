@@ -8,8 +8,8 @@ use axum::{
 use serde::{Deserialize, Serialize};
 
 use super::{
-    Catalogue, CatalogueResponse, Collection, CollectionResponse, Error, SeasonDetailsResponse,
-    SeriesDetailsResponse,
+    Catalogue, CatalogueManifest, CatalogueRailResponse, CatalogueResponse, Collection,
+    CollectionResponse, Error, SeasonDetailsResponse, SeriesDetailsResponse, Surface,
 };
 
 pub(super) fn router(catalogue: Catalogue) -> Router {
@@ -17,6 +17,8 @@ pub(super) fn router(catalogue: Catalogue) -> Router {
         .route("/v1/catalogue/discover", get(discover))
         .route("/v1/catalogue/movies", get(movies))
         .route("/v1/catalogue/series", get(series))
+        .route("/v1/catalogue/{surface}/manifest", get(manifest))
+        .route("/v1/catalogue/{surface}/rails/{rail}", get(rail))
         .route("/v1/titles/series/{tmdb_id}", get(series_details))
         .route(
             "/v1/titles/series/{tmdb_id}/seasons/{season_number}",
@@ -90,6 +92,27 @@ async fn season_details(
         .map(Json)
 }
 
+async fn manifest(
+    State(catalogue): State<Catalogue>,
+    Path(surface): Path<String>,
+    Query(query): Query<CatalogueQuery>,
+) -> Result<Json<CatalogueManifest>, Error> {
+    let surface = parse_surface(&surface).ok_or(Error::NotFound)?;
+    Ok(Json(catalogue.manifest(surface, query.language.as_deref())))
+}
+
+async fn rail(
+    State(catalogue): State<Catalogue>,
+    Path((surface, rail)): Path<(String, String)>,
+    Query(query): Query<CatalogueQuery>,
+) -> Result<Json<CatalogueRailResponse>, Error> {
+    let surface = parse_surface(&surface).ok_or(Error::NotFound)?;
+    catalogue
+        .rail(surface, &rail, query.language)
+        .await
+        .map(Json)
+}
+
 async fn collection(
     State(catalogue): State<Catalogue>,
     Path(collection): Path<String>,
@@ -112,6 +135,15 @@ async fn category_collection(
         .collection(collection, query.language, query.cursor)
         .await
         .map(Json)
+}
+
+fn parse_surface(surface: &str) -> Option<Surface> {
+    match surface {
+        "discover" => Some(Surface::Discover),
+        "movies" => Some(Surface::Movies),
+        "series" => Some(Surface::Series),
+        _ => None,
+    }
 }
 
 impl IntoResponse for Error {

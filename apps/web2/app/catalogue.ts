@@ -35,6 +35,28 @@ export type CatalogueResponse = {
   }>;
 };
 
+export type CatalogueSection = CatalogueResponse["sections"][number];
+
+export type CatalogueManifest = {
+  surface: Surface;
+  rails: Array<{
+    id: string;
+    title: string;
+    layout: "poster" | "backdrop";
+    itemsHref: string;
+    itemCountHint: number;
+  }>;
+};
+
+export type CatalogueRailResponse = {
+  section: CatalogueSection;
+  issues: Array<{
+    source: "jellyfin" | "seerr";
+    sectionId: string | null;
+    code: "upstreamUnavailable";
+  }>;
+};
+
 export type CollectionResponse = {
   id: string;
   title: string;
@@ -109,7 +131,7 @@ export function firstRegularSeason(series: SeriesDetails) {
 
 export function reelProxyPathAllowed(path: string) {
   return (
-    /^v1\/catalogue\/(?:(?:discover|movies|series)|collections\/[a-z0-9-]+(?:\/[0-9]+)?)$/.test(
+    /^v1\/catalogue\/(?:(?:discover|movies|series)(?:\/manifest|\/rails\/[a-z0-9-]+)?|collections\/[a-z0-9-]+(?:\/[0-9]+)?)$/.test(
       path,
     ) || /^v1\/titles\/series\/[0-9]+(?:\/seasons\/[0-9]+)?$/.test(path)
   );
@@ -144,4 +166,35 @@ export function collectionProxyHref(href: string) {
   )
     return null;
   return `/api/reel${url.pathname}${url.search}`;
+}
+
+export function catalogueRailProxyHref(href: string) {
+  if (!href.startsWith("/v1/catalogue/")) return null;
+  const url = new URL(href, "http://reel.local");
+  if (
+    url.origin !== "http://reel.local" ||
+    !/^\/v1\/catalogue\/(?:discover|movies|series)\/rails\/[a-z0-9-]+$/.test(
+      url.pathname,
+    ) ||
+    url.hash
+  )
+    return null;
+  return `/api/reel${url.pathname}${url.search}`;
+}
+
+export async function mapWithConcurrency<T>(
+  items: readonly T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>,
+) {
+  let nextIndex = 0;
+  const run = async () => {
+    while (nextIndex < items.length) {
+      const item = items[nextIndex++];
+      await worker(item);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(Math.max(1, concurrency), items.length) }, run),
+  );
 }

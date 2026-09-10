@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   collectionHref,
+  catalogueRailProxyHref,
   collectionProxyHref,
   firstRegularSeason,
+  mapWithConcurrency,
   reelProxyPathAllowed,
   titleHref,
 } from "../app/catalogue.ts";
@@ -16,6 +18,38 @@ test("collection links preserve opaque cursors and language", () => {
     href,
   );
   assert.equal(collectionProxyHref(href), `/api/reel${href}`);
+});
+
+test("rail proxy accepts only relative catalogue rail URLs", () => {
+  assert.equal(
+    catalogueRailProxyHref(
+      "/v1/catalogue/discover/rails/trending?language=fr-FR",
+    ),
+    "/api/reel/v1/catalogue/discover/rails/trending?language=fr-FR",
+  );
+  for (const href of [
+    "https://example.com/v1/catalogue/discover/rails/trending",
+    "/v1/catalogue/discover/rails/../../admin",
+    "/v1/catalogue/unknown/rails/trending",
+    "/v1/catalogue/discover/rails/trending#fragment",
+  ]) {
+    assert.equal(catalogueRailProxyHref(href), null, href);
+  }
+});
+
+test("progressive rail work respects its concurrency limit", async () => {
+  let active = 0;
+  let peak = 0;
+  const completed = [];
+  await mapWithConcurrency([0, 1, 2, 3, 4, 5], 3, async (item) => {
+    active += 1;
+    peak = Math.max(peak, active);
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    completed.push(item);
+    active -= 1;
+  });
+  assert.equal(peak, 3);
+  assert.deepEqual(completed.toSorted(), [0, 1, 2, 3, 4, 5]);
 });
 
 test("collection proxy rejects external and escaping paths", () => {

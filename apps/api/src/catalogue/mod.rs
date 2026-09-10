@@ -4,9 +4,14 @@ mod media;
 mod navigation;
 mod types;
 
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use axum::Router;
+use tokio::sync::Mutex;
 
 use crate::{
     integration::Integration,
@@ -21,17 +26,28 @@ use curated::{CuratedCategory, NETWORKS, STUDIOS};
 pub use types::*;
 
 const POPULARITY_DESCENDING: &str = "popularity.desc";
+const LOCAL_MOVIES_CACHE_TTL: Duration = Duration::from_secs(30);
 
 /// The deep module that turns provider-shaped discovery data into Reel's catalogue.
 #[derive(Clone)]
 pub struct Catalogue {
     seerr: Seerr,
     jellyfin: Jellyfin,
+    local_movies: Arc<Mutex<Option<CachedLocalMovies>>>,
+}
+
+struct CachedLocalMovies {
+    loaded_at: Instant,
+    movies: HashMap<i64, LocalCopy>,
 }
 
 impl Catalogue {
     pub fn new(seerr: Seerr, jellyfin: Jellyfin) -> Self {
-        Self { seerr, jellyfin }
+        Self {
+            seerr,
+            jellyfin,
+            local_movies: Arc::new(Mutex::new(None)),
+        }
     }
 
     pub async fn discover(&self, language: Option<String>) -> Result<CatalogueResponse, Error> {
@@ -44,7 +60,7 @@ impl Catalogue {
             self.seerr.series(&series_query),
             self.seerr.movie_genres(language.as_deref()),
             self.seerr.series_genres(language.as_deref()),
-            media::local_movies(&self.jellyfin),
+            self.local_movies(),
         );
 
         let mut builder = SurfaceBuilder::new(Surface::Discover, language.as_deref());
@@ -66,7 +82,7 @@ impl Catalogue {
             self.seerr.trending(&trending_query),
             self.seerr.movies(&popular_query),
             self.seerr.movie_genres(language.as_deref()),
-            media::local_movies(&self.jellyfin),
+            self.local_movies(),
         );
 
         let mut builder = SurfaceBuilder::new(Surface::Movies, language.as_deref());
@@ -146,7 +162,7 @@ impl Catalogue {
             navigation::page_from_cursor(cursor.as_deref(), &collection, language.as_deref())?;
         let local_movies = async {
             if collection.includes_movies() {
-                Some(media::local_movies(&self.jellyfin).await)
+                Some(self.local_movies().await)
             } else {
                 None
             }
@@ -180,6 +196,109 @@ impl Catalogue {
             next,
             issues,
         })
+    }
+
+    pub fn manifest(&self, surface: Surface, language: Option<&str>) -> CatalogueManifest {
+        CatalogueManifest {
+            surface,
+            rails: rail_specs(surface)
+                .iter()
+                .map(|spec| CatalogueRailDescriptor {
+                    id: spec.id.into(),
+                    title: spec.title.into(),
+                    layout: spec.layout,
+                    items_href: rail_href(surface, spec.id, language),
+                    item_count_hint: spec.item_count_hint,
+                })
+                .collect(),
+        }
+    }
+
+    pub async fn rail(
+        &self,
+        surface: Surface,
+        rail_id: &str,
+        language: Option<String>,
+    ) -> Result<CatalogueRailResponse, Error> {
+        if !rail_specs(surface).iter().any(|spec| spec.id == rail_id) {
+            return Err(Error::NotFound);
+        }
+
+        let mut builder = SurfaceBuilder::new(surface, language.as_deref());
+        match rail_id {
+            "trending" => {
+                let query = trending_query(TrendingMediaType::All, 1, language.clone());
+                let (items, local_movies) =
+                    tokio::join!(self.seerr.trending(&query), self.local_movies(),);
+                builder.local_movies(local_movies);
+                builder.media(Collection::Trending, items);
+            }
+            "trending-movies" => {
+                let query = trending_query(TrendingMediaType::Movie, 1, language.clone());
+                let (items, local_movies) =
+                    tokio::join!(self.seerr.trending(&query), self.local_movies(),);
+                builder.local_movies(local_movies);
+                builder.media(Collection::TrendingMovies, items);
+            }
+            "trending-series" => builder.media(
+                Collection::TrendingSeries,
+                self.seerr
+                    .trending(&trending_query(TrendingMediaType::Tv, 1, language.clone()))
+                    .await,
+            ),
+            "popular-movies" => {
+                let query = popular_movies_query(1, language.clone());
+                let (items, local_movies) =
+                    tokio::join!(self.seerr.movies(&query), self.local_movies(),);
+                builder.local_movies(local_movies);
+                builder.media(Collection::PopularMovies, items);
+            }
+            "popular-series" => builder.media(
+                Collection::PopularSeries,
+                self.seerr
+                    .series(&popular_series_query(1, language.clone()))
+                    .await,
+            ),
+            "movie-genres" => builder.genres(
+                MediaKind::Movie,
+                self.seerr.movie_genres(language.as_deref()).await,
+            ),
+            "series-genres" => builder.genres(
+                MediaKind::Series,
+                self.seerr.series_genres(language.as_deref()).await,
+            ),
+            "studios" => builder.curated(CategoryKind::Studio, STUDIOS),
+            "networks" => builder.curated(CategoryKind::Network, NETWORKS),
+            _ => return Err(Error::NotFound),
+        }
+
+        let response = builder.finish()?;
+        let section = response
+            .sections
+            .into_iter()
+            .next()
+            .ok_or(Error::Unavailable)?;
+        Ok(CatalogueRailResponse {
+            section,
+            issues: response.issues,
+        })
+    }
+
+    async fn local_movies(&self) -> crate::jellyfin::Result<HashMap<i64, LocalCopy>> {
+        let mut cache = self.local_movies.lock().await;
+        if let Some(cached) = cache
+            .as_ref()
+            .filter(|cached| cached.loaded_at.elapsed() < LOCAL_MOVIES_CACHE_TTL)
+        {
+            return Ok(cached.movies.clone());
+        }
+
+        let movies = media::local_movies(&self.jellyfin).await?;
+        *cache = Some(CachedLocalMovies {
+            loaded_at: Instant::now(),
+            movies: movies.clone(),
+        });
+        Ok(movies)
     }
 
     async fn fetch_collection(
@@ -236,6 +355,75 @@ impl Catalogue {
             Collection::Network(id) => self.seerr.series_by_network(id, Some(page), language).await,
         }
     }
+}
+
+#[derive(Clone, Copy)]
+struct RailSpec {
+    id: &'static str,
+    title: &'static str,
+    layout: SectionLayout,
+    item_count_hint: usize,
+}
+
+const DISCOVER_RAILS: &[RailSpec] = &[
+    RailSpec::poster("trending", "Trending Now", 20),
+    RailSpec::poster("popular-movies", "Popular Movies", 20),
+    RailSpec::poster("popular-series", "Popular Series", 20),
+    RailSpec::backdrop("movie-genres", "Movie Genres", 19),
+    RailSpec::backdrop("studios", "Studios", STUDIOS.len()),
+    RailSpec::backdrop("series-genres", "Series Genres", 16),
+    RailSpec::backdrop("networks", "Networks", NETWORKS.len()),
+];
+const MOVIE_RAILS: &[RailSpec] = &[
+    RailSpec::poster("trending-movies", "Trending Movies", 20),
+    RailSpec::poster("popular-movies", "Popular Movies", 20),
+    RailSpec::backdrop("movie-genres", "Genres", 19),
+    RailSpec::backdrop("studios", "Studios", STUDIOS.len()),
+];
+const SERIES_RAILS: &[RailSpec] = &[
+    RailSpec::poster("trending-series", "Trending Series", 20),
+    RailSpec::poster("popular-series", "Popular Series", 20),
+    RailSpec::backdrop("series-genres", "Genres", 16),
+    RailSpec::backdrop("networks", "Networks", NETWORKS.len()),
+];
+
+impl RailSpec {
+    const fn poster(id: &'static str, title: &'static str, item_count_hint: usize) -> Self {
+        Self {
+            id,
+            title,
+            layout: SectionLayout::Poster,
+            item_count_hint,
+        }
+    }
+
+    const fn backdrop(id: &'static str, title: &'static str, item_count_hint: usize) -> Self {
+        Self {
+            id,
+            title,
+            layout: SectionLayout::Backdrop,
+            item_count_hint,
+        }
+    }
+}
+
+fn rail_specs(surface: Surface) -> &'static [RailSpec] {
+    match surface {
+        Surface::Discover => DISCOVER_RAILS,
+        Surface::Movies => MOVIE_RAILS,
+        Surface::Series => SERIES_RAILS,
+    }
+}
+
+fn rail_href(surface: Surface, rail_id: &str, language: Option<&str>) -> String {
+    let path = format!("/v1/catalogue/{}/rails/{rail_id}", surface.as_str());
+    let Some(language) = language else {
+        return path;
+    };
+    let query = url::form_urlencoded::Serializer::new(String::new())
+        .append_pair("language", language)
+        .finish();
+    format!("{path}?{query}")
 }
 
 pub fn router(catalogue: Catalogue) -> Router {
