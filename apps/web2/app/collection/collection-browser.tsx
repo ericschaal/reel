@@ -10,6 +10,7 @@ import {
 import { CatalogueCard } from "../media-card";
 import { collectionQuery } from "../reel-query";
 import { useIntersectionObserver } from "../use-intersection-observer";
+import { AmbientBackdrop } from "../ambient-backdrop";
 import {
   buttonClass,
   CardSkeletons,
@@ -65,12 +66,13 @@ export function CollectionBrowser({ initialHref }: { initialHref: string }) {
   }, [isIntersecting, loadMore, next, loading, error]);
 
   return (
-    <div className="min-h-dvh bg-[radial-gradient(ellipse_at_15%_0%,#233336_0%,transparent_40%)]">
-      <NavigationHeader href="/" label="Back to catalogue" />
-      <main
-        id="main-content"
-        className={`mx-auto max-w-[1600px] pb-16 [overflow-anchor:none] ${pageGutter}`}
-      >
+    <AmbientBackdrop>
+      <div className="min-h-dvh bg-[radial-gradient(ellipse_at_15%_0%,#23333680_0%,transparent_40%)]">
+        <NavigationHeader href="/" label="Back to catalogue" />
+        <main
+          id="main-content"
+          className={`mx-auto max-w-[1600px] pb-16 [overflow-anchor:none] ${pageGutter}`}
+        >
         <section className="pt-12 pb-10 sm:pt-16 sm:pb-12">
           <Eyebrow>Browse collection</Eyebrow>
           <h1 className="max-w-4xl text-4xl leading-tight font-semibold tracking-[-0.045em] [overflow-wrap:anywhere] sm:text-6xl">
@@ -145,7 +147,8 @@ export function CollectionBrowser({ initialHref }: { initialHref: string }) {
             Try another collection to find something to watch.
           </EmptyState>
         ) : null}
-      </main>
-    </div>
+        </main>
+      </div>
+    </AmbientBackdrop>
   );
 }

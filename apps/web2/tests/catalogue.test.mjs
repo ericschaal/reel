@@ -256,3 +256,28 @@ test("media cards render rail facts without additional data requests", async () 
   assert.match(source, /formatSeasons\(item.numberOfSeasons\)/);
   assert.doesNotMatch(source, /useQuery|useIntersectionObserver|titleSummaryQuery|fetch\(/);
 });
+
+test("preselected titles illuminate the catalogue with lava-like artwork", async () => {
+  const [backdrop, styles, card, catalogue, collection] = await Promise.all([
+    readFile(new URL("../app/ambient-backdrop.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+    readFile(new URL("../app/media-card.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/catalogue-browser.tsx", import.meta.url), "utf8"),
+    readFile(
+      new URL("../app/collection/collection-browser.tsx", import.meta.url),
+      "utf8",
+    ),
+  ]);
+
+  assert.match(backdrop, /variant="primary"/);
+  assert.match(backdrop, /variant="secondary"/);
+  assert.match(backdrop, /variant="accent"/);
+  assert.match(styles, /ambient-lava-primary/);
+  assert.match(styles, /mask-image: radial-gradient/);
+  assert.match(styles, /transition: opacity 900ms/);
+  assert.match(card, /item\.images\.poster \?\? item\.images\.backdrop/);
+  assert.match(card, /onMouseEnter/);
+  assert.match(card, /onFocus/);
+  assert.match(catalogue, /<AmbientBackdrop>/);
+  assert.match(collection, /<AmbientBackdrop>/);
+});

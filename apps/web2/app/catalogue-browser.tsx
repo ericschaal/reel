@@ -19,6 +19,7 @@ import {
   Header,
   pageGutter,
 } from "./ui";
+import { AmbientBackdrop } from "./ambient-backdrop";
 
 const surfaces: { id: Surface; label: string }[] = [
   { id: "discover", label: "Discover" },
@@ -33,25 +34,26 @@ export function CatalogueBrowser({ surface }: { surface: Surface }) {
   const manifest = manifestQuery.data;
 
   return (
-    <div className="min-h-dvh bg-[radial-gradient(ellipse_at_40%_0%,#233336_0%,transparent_45%)]">
-      <Header>
-        <nav
-          className={`flex rounded-full ${catalogueNavGroupClass}`}
-          aria-label="Catalogue"
-        >
-          {surfaces.map((item) => (
-            <Link
-              key={item.id}
-              href={item.id === "discover" ? "/" : `/?surface=${item.id}`}
-              aria-current={surface === item.id ? "page" : undefined}
-              className={`inline-flex min-h-11 items-center border-r border-white/10 px-3 text-sm last:border-r-0 sm:px-5 ${catalogueNavItemClass} ${surface === item.id ? "bg-accent/12 font-semibold text-accent shadow-[inset_0_0_20px_#f4bc5212]" : "text-muted hover:text-ink"}`}
-            >
-              {item.label}
-            </Link>
-          ))}
-        </nav>
-      </Header>
-      <main id="main-content" className="mx-auto max-w-[1600px] pb-16 sm:pb-24">
+    <AmbientBackdrop>
+      <div className="min-h-dvh bg-[radial-gradient(ellipse_at_40%_0%,#23333680_0%,transparent_45%)]">
+        <Header>
+          <nav
+            className={`flex rounded-full ${catalogueNavGroupClass}`}
+            aria-label="Catalogue"
+          >
+            {surfaces.map((item) => (
+              <Link
+                key={item.id}
+                href={item.id === "discover" ? "/" : `/?surface=${item.id}`}
+                aria-current={surface === item.id ? "page" : undefined}
+                className={`inline-flex min-h-11 items-center border-r border-white/10 px-3 text-sm last:border-r-0 sm:px-5 ${catalogueNavItemClass} ${surface === item.id ? "bg-accent/12 font-semibold text-accent shadow-[inset_0_0_20px_#f4bc5212]" : "text-muted hover:text-ink"}`}
+              >
+                {item.label}
+              </Link>
+            ))}
+          </nav>
+        </Header>
+        <main id="main-content" className="mx-auto max-w-[1600px] pb-16 sm:pb-24">
         <section className={`pt-12 pb-10 sm:pt-16 sm:pb-14 ${pageGutter}`}>
           <Eyebrow>Your unified library</Eyebrow>
           <h1 className="max-w-4xl text-4xl leading-[1.08] font-semibold tracking-[-0.045em] text-balance sm:text-6xl lg:text-7xl">
@@ -113,8 +115,9 @@ export function CatalogueBrowser({ surface }: { surface: Surface }) {
             ))}
           </div>
         )}
-      </main>
-    </div>
+        </main>
+      </div>
+    </AmbientBackdrop>
   );
 }
 

@@ -2,7 +2,8 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { useAmbientBackdrop } from "./ambient-backdrop";
 import {
   type CatalogueItem,
   type MediaCard,
@@ -146,6 +147,8 @@ export function CatalogueCard({
   layout?: "poster" | "backdrop";
   priority?: boolean;
 }) {
+  const ambientBackdrop = useAmbientBackdrop();
+  const interactions = useRef({ focused: false, hovered: false });
 
   if (item.kind === "category") {
     const isLogo = item.categoryKind !== "genre";
@@ -192,10 +195,34 @@ export function CatalogueCard({
   }
 
   const backdrop = layout === "backdrop";
+  const ambientArtwork = item.images.poster ?? item.images.backdrop;
+  const showAmbientArtwork = () => {
+    if (ambientArtwork) ambientBackdrop.show(ambientArtwork);
+  };
+  const clearAmbientArtwork = () => {
+    if (ambientArtwork) ambientBackdrop.clear(ambientArtwork);
+  };
+
   return (
     <Link
       className="group grid min-w-0 snap-start content-start gap-3 rounded-xl transition-transform duration-300 ease-out hover:z-10 motion-safe:hover:-translate-y-1 motion-safe:hover:scale-[1.035]"
       href={titleHref(item)}
+      onMouseEnter={() => {
+        interactions.current.hovered = true;
+        showAmbientArtwork();
+      }}
+      onMouseLeave={() => {
+        interactions.current.hovered = false;
+        if (!interactions.current.focused) clearAmbientArtwork();
+      }}
+      onFocus={() => {
+        interactions.current.focused = true;
+        showAmbientArtwork();
+      }}
+      onBlur={() => {
+        interactions.current.focused = false;
+        if (!interactions.current.hovered) clearAmbientArtwork();
+      }}
     >
       <span
         className={`relative block overflow-hidden rounded-xl border border-white/10 bg-panel transition-colors group-hover:border-accent/60 ${backdrop ? "aspect-video" : "aspect-[2/3]"}`}
