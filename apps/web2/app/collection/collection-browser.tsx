@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useInfiniteQuery } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
   type CatalogueItem,
-  type CollectionResponse,
   collectionProxyHref,
 } from "../catalogue";
 import { CatalogueCard } from "../media-card";
+import { collectionQuery } from "../reel-query";
 import {
   buttonClass,
   CardSkeletons,
@@ -18,80 +19,48 @@ import {
 
 export function CollectionBrowser({ initialHref }: { initialHref: string }) {
   const valid = Boolean(collectionProxyHref(initialHref));
-  const [title, setTitle] = useState("Collection");
-  const [items, setItems] = useState<CatalogueItem[]>([]);
-  const [next, setNext] = useState<string | null>(null);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(valid);
-  const [error, setError] = useState<string | null>(
-    valid ? null : "This collection link is invalid.",
-  );
-  const [request, setRequest] = useState({ href: initialHref, attempt: 0 });
   const sentinelRef = useRef<HTMLDivElement>(null);
-  const inFlight = useRef(valid);
-
-  useEffect(() => {
-    const url = collectionProxyHref(request.href);
-    if (!url) return;
-    const controller = new AbortController();
-    async function load() {
-      try {
-        const response = await fetch(url!, { signal: controller.signal });
-        if (!response.ok)
-          throw new Error(
-            "This collection could not be loaded. Please try again.",
-          );
-        const page: CollectionResponse = await response.json();
-        if (controller.signal.aborted) return;
-        setTitle(page.title);
-        setTotal(page.totalResults);
-        setNext(page.next);
-        setItems((current) => {
-          const unique = new Map(
-            current.map((item) => [`${item.kind}-${item.id}`, item]),
-          );
-          for (const item of page.items)
-            unique.set(`${item.kind}-${item.id}`, item);
-          return [...unique.values()];
-        });
-      } catch (reason) {
-        if (!controller.signal.aborted)
-          setError(
-            reason instanceof Error
-              ? reason.message
-              : "Unable to load this collection.",
-          );
-      } finally {
-        if (!controller.signal.aborted) {
-          inFlight.current = false;
-          setLoading(false);
-        }
-      }
+  const {
+    data,
+    isPending,
+    isFetchingNextPage,
+    isError,
+    hasNextPage,
+    fetchNextPage,
+    refetch,
+  } = useInfiniteQuery({
+    ...collectionQuery(initialHref),
+    enabled: valid,
+  });
+  const pages = useMemo(() => data?.pages ?? [], [data?.pages]);
+  const title = pages[0]?.title ?? "Collection";
+  const total = pages[0]?.totalResults ?? 0;
+  const next = pages.at(-1)?.next ?? null;
+  const loading = isPending || isFetchingNextPage;
+  const error = !valid
+    ? "This collection link is invalid."
+    : isError
+      ? "This collection could not be loaded. Please try again."
+      : null;
+  const items = useMemo(() => {
+    const unique = new Map<string, CatalogueItem>();
+    for (const page of pages) {
+      for (const item of page.items)
+        unique.set(`${item.kind}-${item.id}`, item);
     }
-    void load();
-    return () => controller.abort();
-  }, [request]);
+    return [...unique.values()];
+  }, [pages]);
 
-  const loadMore = useCallback((href: string) => {
-    if (inFlight.current) return;
-    if (!collectionProxyHref(href)) {
-      setError(
-        "The next page link is invalid. Return to the catalogue to browse another collection.",
-      );
-      return;
-    }
-    inFlight.current = true;
-    setLoading(true);
-    setError(null);
-    setRequest((current) => ({ href, attempt: current.attempt + 1 }));
-  }, []);
+  const loadMore = useCallback(() => {
+    if (hasNextPage && !isFetchingNextPage) void fetchNextPage();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   useEffect(() => {
     const sentinel = sentinelRef.current;
     if (!sentinel || !next || loading || error) return;
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (entry.isIntersecting) loadMore(next);
+        if (entry.isIntersecting) loadMore();
       },
       { rootMargin: "300px" },
     );
@@ -140,7 +109,9 @@ export function CollectionBrowser({ initialHref }: { initialHref: string }) {
                 <button
                   className={buttonClass}
                   type="button"
-                  onClick={() => loadMore(next ?? request.href)}
+                  onClick={() =>
+                    void (items.length ? fetchNextPage() : refetch())
+                  }
                 >
                   Try again
                 </button>
@@ -163,7 +134,7 @@ export function CollectionBrowser({ initialHref }: { initialHref: string }) {
             <button
               className={buttonClass}
               type="button"
-              onClick={() => loadMore(next)}
+              onClick={loadMore}
             >
               Load more
             </button>

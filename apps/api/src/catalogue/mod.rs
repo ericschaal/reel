@@ -123,7 +123,26 @@ impl Catalogue {
             .series_details(tmdb_id, language.as_deref())
             .await
             .map_err(map_details_error)?;
-        Ok(media::normalize_series_details(details))
+        let mut response = media::normalize_series_details(details);
+        let first_season_number = media::initial_season_number(&response.seasons);
+
+        if let Some(season_number) = first_season_number {
+            match self.season_details(tmdb_id, season_number, language).await {
+                Ok(season) => response.initial_season = Some(season),
+                Err(error) => {
+                    tracing::warn!(
+                        ?error,
+                        tmdb_id,
+                        season_number,
+                        "initial season guide is unavailable"
+                    );
+                    response
+                        .issues
+                        .push(CatalogueIssue::upstream(Integration::Seerr, None));
+                }
+            }
+        }
+        Ok(response)
     }
 
     pub async fn movie_details(

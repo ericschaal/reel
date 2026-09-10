@@ -143,6 +143,9 @@ pub struct SeriesDetailsResponse {
     pub number_of_episodes: Option<u32>,
     pub images: Images,
     pub seasons: Vec<SeasonSummary>,
+    #[serde(default)]
+    pub issues: Vec<CatalogueIssue>,
+    pub initial_season: Option<SeasonDetailsResponse>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]

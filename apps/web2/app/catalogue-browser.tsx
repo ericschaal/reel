@@ -1,17 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import {
-  type CatalogueManifest,
-  type CatalogueRailResponse,
-  type CatalogueSection,
   type Surface,
-  catalogueRailProxyHref,
   collectionHref,
-  mapWithConcurrency,
 } from "./catalogue";
 import { CatalogueCard } from "./media-card";
+import { catalogueManifestQuery, catalogueRailQuery } from "./reel-query";
 import {
   buttonClass,
   CardSkeletons,
@@ -31,77 +27,13 @@ const surfaces: { id: Surface; label: string }[] = [
 const rowClass = `grid grid-flow-col gap-4 overflow-x-auto overscroll-x-contain scroll-px-5 sm:scroll-px-8 lg:scroll-px-12 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden snap-x snap-proximity pt-3 pb-7 sm:gap-5 ${pageGutter}`;
 
 export function CatalogueBrowser({ surface }: { surface: Surface }) {
-  const [manifest, setManifest] = useState<CatalogueManifest | null>(null);
-  const [rails, setRails] = useState<
-    Record<string, { section?: CatalogueSection; error?: string }>
-  >({});
-  const [error, setError] = useState<string | null>(null);
-  const [requestKey, setRequestKey] = useState(0);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    async function load() {
-      try {
-        setManifest(null);
-        setRails({});
-        setError(null);
-        const response = await fetch(
-          `/api/reel/v1/catalogue/${surface}/manifest?language=en`,
-          { signal: controller.signal },
-        );
-        if (!response.ok)
-          throw new Error(
-            "The catalogue is unavailable right now. Please try again.",
-          );
-        const data: CatalogueManifest = await response.json();
-        if (controller.signal.aborted) return;
-        setManifest(data);
-
-        await mapWithConcurrency(data.rails, 3, async (rail) => {
-          const url = catalogueRailProxyHref(rail.itemsHref);
-          if (!url) {
-            setRails((current) => ({
-              ...current,
-              [rail.id]: { error: "This catalogue rail has an invalid URL." },
-            }));
-            return;
-          }
-          try {
-            const railResponse = await fetch(url, {
-              signal: controller.signal,
-            });
-            if (!railResponse.ok) throw new Error("This rail is unavailable.");
-            const railData: CatalogueRailResponse = await railResponse.json();
-            if (!controller.signal.aborted)
-              setRails((current) => ({
-                ...current,
-                [rail.id]: { section: railData.section },
-              }));
-          } catch (reason) {
-            if (!controller.signal.aborted)
-              setRails((current) => ({
-                ...current,
-                [rail.id]: {
-                  error:
-                    reason instanceof Error
-                      ? reason.message
-                      : "This rail is unavailable.",
-                },
-              }));
-          }
-        });
-      } catch (reason) {
-        if (!controller.signal.aborted)
-          setError(
-            reason instanceof Error
-              ? reason.message
-              : "Unable to load the catalogue.",
-          );
-      }
-    }
-    void load();
-    return () => controller.abort();
-  }, [surface, requestKey]);
+  const manifestQuery = useQuery(catalogueManifestQuery(surface));
+  const manifest = manifestQuery.data;
+  const railQueries = useQueries({
+    queries: (manifest?.rails ?? []).map((rail) =>
+      catalogueRailQuery(rail.itemsHref),
+    ),
+  });
 
   return (
     <div className="min-h-dvh bg-[radial-gradient(ellipse_at_40%_0%,#233336_0%,transparent_45%)]">
@@ -136,14 +68,14 @@ export function CatalogueBrowser({ surface }: { surface: Surface }) {
         {manifest ? (
           <div className="grid gap-10 sm:gap-14">
             {manifest.rails.map((rail, sectionIndex) => {
-              const state = rails[rail.id];
-              const section = state?.section;
+              const state = railQueries[sectionIndex];
+              const section = state.data?.section;
               return (
                 <section
                   className="min-w-0"
                   key={rail.id}
                   aria-labelledby={`section-${rail.id}`}
-                  aria-busy={!section && !state?.error}
+                  aria-busy={!section && state.isPending}
                 >
                   <div
                     className={`mb-3 flex items-center justify-between gap-4 ${pageGutter}`}
@@ -180,13 +112,13 @@ export function CatalogueBrowser({ surface }: { surface: Surface }) {
                           priority={sectionIndex === 0 && itemIndex < 2}
                         />
                       ))
-                    ) : state?.error ? (
+                    ) : state.isError ? (
                       <div className="col-span-2 grid min-h-40 content-center gap-3 rounded-xl border border-line bg-panel/60 p-5 text-sm text-muted">
-                        <p>{state.error}</p>
+                        <p>This rail is unavailable.</p>
                         <button
                           className={`${buttonClass} w-fit`}
                           type="button"
-                          onClick={() => setRequestKey((key) => key + 1)}
+                          onClick={() => void state.refetch()}
                         >
                           Try again
                         </button>
@@ -207,23 +139,20 @@ export function CatalogueBrowser({ surface }: { surface: Surface }) {
               </EmptyState>
             ) : null}
           </div>
-        ) : error ? (
+        ) : manifestQuery.isError ? (
           <EmptyState
             title="Catalogue unavailable"
             action={
               <button
                 className={buttonClass}
                 type="button"
-                onClick={() => {
-                  setError(null);
-                  setRequestKey((key) => key + 1);
-                }}
+                onClick={() => void manifestQuery.refetch()}
               >
                 Try again
               </button>
             }
           >
-            {error}
+            The catalogue is unavailable right now. Please try again.
           </EmptyState>
         ) : (
           <div

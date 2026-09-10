@@ -358,6 +358,19 @@ async fn serves_series_seasons_and_episodes_as_reel_media() {
         .find(|season| season.season_number > 0 && season.episode_count.unwrap_or(0) > 0)
         .expect("series details should contain a regular season");
 
+    let initial_season = details
+        .initial_season
+        .as_ref()
+        .expect("series title read model should include its initial season");
+    assert_eq!(initial_season.season_number, season.season_number);
+    assert!(
+        initial_season
+            .episodes
+            .iter()
+            .all(|episode| episode.rating.is_some()),
+        "episode summaries should carry ratings"
+    );
+
     let season_details: SeasonDetailsResponse = get_json(&format!(
         "/v1/titles/series/{}/seasons/{}?language=en",
         series.tmdb_id, season.season_number

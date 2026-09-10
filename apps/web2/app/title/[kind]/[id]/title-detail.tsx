@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useQuery } from "@tanstack/react-query";
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import type {
   Episode,
@@ -10,6 +11,7 @@ import type {
   SeriesDetails,
 } from "../../../catalogue";
 import { Artwork, RatingBadge } from "../../../media-card";
+import { seasonQuery } from "../../../reel-query";
 import { buttonClass, primaryButtonClass, Eyebrow, glassClass, pageGutter } from "../../../ui";
 
 type Source = {
@@ -75,12 +77,21 @@ export function TitleDetail({
   initialSeason?: SeasonDetails | null;
   seriesError?: string | null;
 }) {
-  const [season, setSeason] = useState(initialSeason);
   const [seasonNumber, setSeasonNumber] = useState(
     initialSeason?.seasonNumber ?? null,
   );
-  const [seasonLoading, setSeasonLoading] = useState(false);
-  const [seasonError, setSeasonError] = useState(seriesError);
+  const selectedSeasonQuery = useQuery({
+    ...seasonQuery(series?.tmdbId ?? 0, seasonNumber ?? 0),
+    enabled: Boolean(series && seasonNumber != null),
+    initialData:
+      initialSeason?.seasonNumber === seasonNumber ? initialSeason : undefined,
+  });
+  const season = selectedSeasonQuery.data ?? null;
+  const seasonLoading = selectedSeasonQuery.isPending && seasonNumber != null;
+  const seasonError = seriesError ??
+    (selectedSeasonQuery.isError
+      ? "This season could not be loaded. Please try again."
+      : null);
   const [nextEpisode] = useState(
     initialSeason?.episodes.find((episode) => episode.id === media.progress?.episodeId) ??
       initialSeason?.episodes[0] ??
@@ -111,25 +122,10 @@ export function TitleDetail({
         : selected.provider
     : null;
 
-  async function selectSeason(nextSeasonNumber: number) {
+  function selectSeason(nextSeasonNumber: number) {
     if (!series || nextSeasonNumber === seasonNumber) return;
     setSeasonNumber(nextSeasonNumber);
-    setSeasonLoading(true);
-    setSeasonError(null);
-    try {
-      const response = await fetch(
-        `/api/reel/v1/titles/series/${series.tmdbId}/seasons/${nextSeasonNumber}?language=en`,
-      );
-      if (!response.ok) throw new Error("Season unavailable");
-      const nextSeason: SeasonDetails = await response.json();
-      setSeason(nextSeason);
-      setSelectedSource("stremio-1");
-    } catch {
-      setSeason(null);
-      setSeasonError("This season could not be loaded. Please try again.");
-    } finally {
-      setSeasonLoading(false);
-    }
+    setSelectedSource("stremio-1");
   }
 
   function playLocal(resumeSeconds?: number, episode = nextEpisode ?? undefined) {
@@ -219,7 +215,7 @@ export function TitleDetail({
         selectedSource={selected}
         progress={progressForSelection(media.progress, episodeDialog)}
         onBack={closeEpisode}
-        onSelectSeason={(number) => void selectSeason(number)}
+        onSelectSeason={selectSeason}
         onOpenEpisode={openEpisode}
         onPlayLocal={(resumeSeconds) =>
           playLocal(resumeSeconds, episodeDialog)
@@ -323,7 +319,7 @@ export function TitleDetail({
             seasonNumber={seasonNumber}
             loading={seasonLoading}
             error={seasonError}
-            onSelectSeason={(number) => void selectSeason(number)}
+            onSelectSeason={selectSeason}
             onOpenEpisode={openEpisode}
             onDownloadEpisode={(episode) =>
               setDownloadScope({ kind: "episode", episode })

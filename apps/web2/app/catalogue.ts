@@ -91,6 +91,16 @@ export type SeriesDetails = {
   numberOfEpisodes: number | null;
   images: { poster: string | null; backdrop: string | null };
   seasons: SeasonSummary[];
+  issues: Array<{
+    source: "jellyfin" | "seerr";
+    sectionId: string | null;
+    code: "upstreamUnavailable";
+  }>;
+  initialSeason: SeasonDetails | null;
+};
+
+export type MovieDetails = Omit<MediaCard, "kind" | "progress"> & {
+  runtimeMinutes: number | null;
 };
 
 export type SeasonSummary = {
@@ -133,17 +143,6 @@ export type Episode = {
   localCopy: { jellyfinItemId: string } | null;
 };
 
-export function firstRegularSeason(series: SeriesDetails) {
-  return (
-    series.seasons.find(
-      (season) => season.seasonNumber > 0 && (season.episodeCount ?? 0) > 0,
-    ) ??
-    series.seasons.find((season) => (season.episodeCount ?? 0) > 0) ??
-    series.seasons[0] ??
-    null
-  );
-}
-
 export function reelProxyPathAllowed(path: string) {
   return (
     /^v1\/catalogue\/(?:(?:discover|movies|series)(?:\/manifest|\/rails\/[a-z0-9-]+)?|collections\/[a-z0-9-]+(?:\/[0-9]+)?)$/.test(
@@ -157,16 +156,7 @@ export function collectionHref(apiHref: string) {
 }
 
 export function titleHref(item: MediaCard) {
-  const query = new URLSearchParams({
-    title: item.title,
-    tmdbId: String(item.tmdbId),
-  });
-  if (item.overview) query.set("overview", item.overview);
-  if (item.year != null) query.set("year", String(item.year));
-  if (item.rating != null) query.set("rating", String(item.rating));
-  if (item.images.poster) query.set("poster", item.images.poster);
-  if (item.images.backdrop) query.set("backdrop", item.images.backdrop);
-  if (item.localCopy) query.set("local", "true");
+  const query = new URLSearchParams();
   if (item.progress) {
     query.set("progress", String(item.progress.positionSeconds));
     query.set("duration", String(item.progress.durationSeconds));
@@ -175,7 +165,21 @@ export function titleHref(item: MediaCard) {
     query.set("lastSourceKind", item.progress.lastSourceKind);
     if (item.progress.episodeId) query.set("episodeId", item.progress.episodeId);
   }
-  return `/title/${item.kind}/${encodeURIComponent(item.id)}?${query.toString()}`;
+  const suffix = query.size ? `?${query.toString()}` : "";
+  return `/title/${item.kind}/${encodeURIComponent(item.id)}${suffix}`;
+}
+
+export function canonicalTmdbId(kind: MediaCard["kind"], id: string) {
+  let canonicalId: string;
+  try {
+    canonicalId = decodeURIComponent(id);
+  } catch {
+    return null;
+  }
+  const match = new RegExp(`^tmdb:${kind}:([1-9][0-9]*)$`).exec(canonicalId);
+  if (!match) return null;
+  const value = Number(match[1]);
+  return Number.isSafeInteger(value) ? value : null;
 }
 
 // Accept only relative collection routes, including opaque pagination queries.
@@ -203,21 +207,4 @@ export function catalogueRailProxyHref(href: string) {
   )
     return null;
   return `/api/reel${url.pathname}${url.search}`;
-}
-
-export async function mapWithConcurrency<T>(
-  items: readonly T[],
-  concurrency: number,
-  worker: (item: T) => Promise<void>,
-) {
-  let nextIndex = 0;
-  const run = async () => {
-    while (nextIndex < items.length) {
-      const item = items[nextIndex++];
-      await worker(item);
-    }
-  };
-  await Promise.all(
-    Array.from({ length: Math.min(Math.max(1, concurrency), items.length) }, run),
-  );
 }

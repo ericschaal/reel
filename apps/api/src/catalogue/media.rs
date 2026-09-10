@@ -148,7 +148,22 @@ pub(super) fn normalize_series_details(details: SeriesDetails) -> SeriesDetailsR
                 poster: season.poster_path.map(|path| image_url("w500", path)),
             })
             .collect(),
+        issues: Vec::new(),
+        initial_season: None,
     }
+}
+
+pub(super) fn initial_season_number(seasons: &[SeasonSummary]) -> Option<i32> {
+    seasons
+        .iter()
+        .find(|season| season.season_number > 0 && season.episode_count.unwrap_or(0) > 0)
+        .or_else(|| {
+            seasons
+                .iter()
+                .find(|season| season.episode_count.unwrap_or(0) > 0)
+        })
+        .or_else(|| seasons.first())
+        .map(|season| season.season_number)
 }
 
 pub(super) fn normalize_movie_details(
@@ -265,6 +280,41 @@ fn year(date: Option<&str>) -> Option<i32> {
 mod tests {
     use super::*;
     use crate::seerr::EpisodeDetails;
+
+    #[test]
+    fn selects_the_first_populated_regular_season_before_specials() {
+        let seasons = vec![
+            SeasonSummary {
+                id: "specials".into(),
+                season_number: 0,
+                title: "Specials".into(),
+                overview: None,
+                air_date: None,
+                episode_count: Some(3),
+                poster: None,
+            },
+            SeasonSummary {
+                id: "empty".into(),
+                season_number: 1,
+                title: "Season 1".into(),
+                overview: None,
+                air_date: None,
+                episode_count: Some(0),
+                poster: None,
+            },
+            SeasonSummary {
+                id: "season-two".into(),
+                season_number: 2,
+                title: "Season 2".into(),
+                overview: None,
+                air_date: None,
+                episode_count: Some(8),
+                poster: None,
+            },
+        ];
+
+        assert_eq!(initial_season_number(&seasons), Some(2));
+    }
 
     #[test]
     fn enriches_the_exact_episode_coordinate_with_its_local_copy() {
