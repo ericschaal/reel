@@ -14,9 +14,9 @@ export const liquidGlassGroupClass =
 export const liquidGlassItemClass =
   "relative isolate bg-white/2.5 backdrop-blur-sm shadow-[inset_0_1px_0_rgba(255,255,255,0.75),0_0_9px_rgba(0,0,0,0.2),0_3px_8px_rgba(0,0,0,0.15)] transition-all duration-300 before:pointer-events-none before:absolute before:inset-0 before:-z-10 before:bg-linear-to-br before:from-white/60 before:via-transparent before:to-transparent before:opacity-70 after:pointer-events-none after:absolute after:inset-0 after:-z-10 after:bg-linear-to-tl after:from-white/30 after:via-transparent after:to-transparent after:opacity-50";
 export const catalogueNavGroupClass =
-  "catalogue-nav items-center gap-5 sm:gap-7";
+  "items-center gap-6 sm:gap-8";
 export const catalogueNavItemClass =
-  "catalogue-nav-item relative min-h-9 justify-center px-0.5 text-sm";
+  "relative min-h-11 justify-center px-0.5 text-sm font-medium transition-colors duration-150 hover:text-white focus-visible:text-nav-accent focus-visible:outline-none";
 export const pageGutter = "px-5 sm:px-8 lg:px-12";
 
 export function Header({
