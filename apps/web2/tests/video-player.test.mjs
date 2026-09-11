@@ -33,7 +33,8 @@ Object.assign(globalThis, {
   HTMLMediaElement: dom.window.HTMLMediaElement,
   IS_REACT_ACT_ENVIRONMENT: true,
 });
-dom.window.HTMLElement.prototype.setPointerCapture = function () {};
+let pointerCaptureCalls = 0;
+dom.window.HTMLElement.prototype.setPointerCapture = function () { pointerCaptureCalls++; };
 const { createRoot } = await import('react-dom/client');
 const { ReelVideoPlayer } = await import('../app/title/[kind]/[id]/video-player.tsx');
 const container = document.getElementById('root');
@@ -85,6 +86,7 @@ Object.defineProperties(dom.window.HTMLMediaElement.prototype, {
   } },
 });
 beforeEach(() => {
+  pointerCaptureCalls = 0;
   nativeHls = true;
   initialTracks = [
     { label: 'English', language: 'eng', mode: 'disabled' },
@@ -308,6 +310,23 @@ test('volume dragging keeps controls visible when the pointer leaves the player'
   await act(() => slider.dispatchEvent(new dom.window.Event('pointerdown', { bubbles: true })));
   await act(() => player.dispatchEvent(new dom.window.MouseEvent('mouseout', { bubbles: true, relatedTarget: null })));
   assert.ok(player.className.includes('cursor-default'), 'Controls must stay visible throughout the drag');
+});
+
+test('volume dragging leaves the range gesture native and ends on window pointerup', async () => {
+  const video = await mount();
+  await canPlay(video);
+  const slider = container.querySelector('[aria-label="Volume"]');
+  const player = video.parentElement;
+  await act(() => slider.dispatchEvent(new dom.window.Event('pointerdown', { bubbles: true })));
+  assert.equal(pointerCaptureCalls, 0, 'Explicit pointer capture must not interfere with native range dragging');
+  await act(() => {
+    Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set.call(slider, '0.35');
+    slider.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+  });
+  assert.equal(video.volume, 0.35);
+  await act(() => window.dispatchEvent(new dom.window.Event('pointerup')));
+  await act(() => player.dispatchEvent(new dom.window.MouseEvent('mouseout', { bubbles: true, relatedTarget: null })));
+  assert.ok(player.className.includes('cursor-none'), 'A release outside the slider must finish the drag');
 });
 
 test('settings support category arrow navigation and Escape restores the opener', async () => {

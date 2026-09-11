@@ -513,6 +513,20 @@ export function ReelVideoPlayer({
     };
   }, []);
 
+  useEffect(() => {
+    const finishVolumeDrag = () => {
+      if (!volumeDraggingRef.current) return;
+      volumeDraggingRef.current = false;
+      revealControls(Boolean(menu));
+    };
+    window.addEventListener("pointerup", finishVolumeDrag);
+    window.addEventListener("pointercancel", finishVolumeDrag);
+    return () => {
+      window.removeEventListener("pointerup", finishVolumeDrag);
+      window.removeEventListener("pointercancel", finishVolumeDrag);
+    };
+  }, [menu, revealControls]);
+
   function updateVolume(nextVolume: number) {
     const video = videoRef.current;
     if (!video) return;
@@ -774,22 +788,9 @@ export function ReelVideoPlayer({
               style={{ "--range-progress": `${volumeProgress}%` } as CSSProperties}
               aria-label="Volume"
               aria-valuetext={`${Math.round(volumeProgress)}%`}
-              onPointerDown={(event) => {
+              onPointerDown={() => {
                 volumeDraggingRef.current = true;
-                event.currentTarget.setPointerCapture(event.pointerId);
                 revealControls(true);
-              }}
-              onPointerUp={() => {
-                volumeDraggingRef.current = false;
-                revealControls(Boolean(menu));
-              }}
-              onPointerCancel={() => {
-                volumeDraggingRef.current = false;
-                revealControls(Boolean(menu));
-              }}
-              onLostPointerCapture={() => {
-                volumeDraggingRef.current = false;
-                revealControls(Boolean(menu));
               }}
               onChange={(event) => updateVolume(Number(event.currentTarget.value))}
             />
