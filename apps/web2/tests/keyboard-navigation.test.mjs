@@ -73,9 +73,13 @@ function addButton(label, left, top) {
   return button;
 }
 
-function press(target, key) {
+function press(target, key, options = {}) {
   target.dispatchEvent(
-    new dom.window.KeyboardEvent("keydown", { key, bubbles: true }),
+    new dom.window.KeyboardEvent("keydown", {
+      key,
+      bubbles: true,
+      ...options,
+    }),
   );
 }
 
@@ -110,6 +114,29 @@ test("focused rail items scroll to the horizontal center", () => {
   assert.equal(document.activeElement, second);
   assert.deepEqual(scrollOptions, {
     behavior: "smooth",
+    block: "nearest",
+    inline: "center",
+  });
+});
+
+test("held arrow keys do not queue smooth rail animations", () => {
+  const rail = document.createElement("div");
+  rail.dataset.keyboardRail = "true";
+  document.body.append(rail);
+  const first = addButton("First", 0, 0);
+  const second = addButton("Second", 140, 0);
+  rail.append(first, second);
+  let scrollOptions;
+  second.scrollIntoView = (options) => {
+    scrollOptions = options;
+  };
+
+  first.focus();
+  press(first, "ArrowRight", { repeat: true });
+
+  assert.equal(document.activeElement, second);
+  assert.deepEqual(scrollOptions, {
+    behavior: "auto",
     block: "nearest",
     inline: "center",
   });

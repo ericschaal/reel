@@ -100,33 +100,35 @@ export function KeyboardNavigation() {
 
       const root =
         document.querySelector<HTMLDialogElement>("dialog[open]") ?? document;
+      const requestedOrigin =
+        handoffOrigin?.isConnected
+          ? handoffOrigin
+          : document.activeElement instanceof HTMLElement
+            ? document.activeElement
+            : null;
+      const rail =
+        requestedOrigin &&
+        root.contains(requestedOrigin) &&
+        (direction === "left" || direction === "right")
+          ? requestedOrigin.closest("[data-keyboard-rail]")
+          : null;
       const candidates = Array.from(
-        root.querySelectorAll<HTMLElement>(focusableSelector),
+        (rail ?? root).querySelectorAll<HTMLElement>(focusableSelector),
       ).filter(isFocusable);
       if (!candidates.length) return;
 
       const activeElement =
-        handoffOrigin && candidates.includes(handoffOrigin)
-          ? handoffOrigin
-          : document.activeElement instanceof HTMLElement &&
-              candidates.includes(document.activeElement)
-            ? document.activeElement
-            : null;
-      const rail =
-        activeElement && (direction === "left" || direction === "right")
-          ? activeElement.closest("[data-keyboard-rail]")
+        requestedOrigin && candidates.includes(requestedOrigin)
+          ? requestedOrigin
           : null;
-      const navigationCandidates = rail
-        ? candidates.filter((candidate) => rail.contains(candidate))
-        : candidates;
       const next = activeElement
-        ? findDirectionalTarget(activeElement, navigationCandidates, direction)
+        ? findDirectionalTarget(activeElement, candidates, direction)
         : initialTarget(candidates);
       if (!next) return;
 
       event.preventDefault();
       next.focus({ preventScroll: true });
-      revealFocusedElement(next);
+      revealFocusedElement(next, event.repeat);
     }
 
     document.addEventListener("keydown", onKeyboardIntent, true);
@@ -150,7 +152,7 @@ export function KeyboardNavigation() {
   return null;
 }
 
-function revealFocusedElement(element: HTMLElement) {
+function revealFocusedElement(element: HTMLElement, keyIsRepeating: boolean) {
   const rail = element.closest("[data-keyboard-rail]");
   if (!rail) {
     element.scrollIntoView?.({ block: "nearest", inline: "nearest" });
@@ -161,7 +163,7 @@ function revealFocusedElement(element: HTMLElement) {
     "(prefers-reduced-motion: reduce)",
   ).matches;
   element.scrollIntoView?.({
-    behavior: reducedMotion ? "auto" : "smooth",
+    behavior: reducedMotion || keyIsRepeating ? "auto" : "smooth",
     block: "nearest",
     inline: "center",
   });
