@@ -129,7 +129,7 @@ impl Fixture {
                 .to_ascii_lowercase()
                 .contains(&format!(
                     "/videos/{}/",
-                    item.id.replace('-', "").to_ascii_lowercase()
+                    item.id.as_str().replace('-', "").to_ascii_lowercase()
                 )),
             "resource must belong to the exact selected Jellyfin item"
         );
@@ -307,7 +307,7 @@ impl RemoteFixture {
         let jellyfin = Jellyfin::new(&base_url, "jellyfin-secret").unwrap();
         let aiostreams = AioStreams::new(&base_url, "test-uuid", "test-password").unwrap();
         let mut playback =
-            Playback::with_user_id(jellyfin, "reel-user").with_aiostreams(aiostreams);
+            Playback::new_with_user_id(jellyfin, "reel-user").with_aiostreams(aiostreams);
         if convert {
             playback = playback.with_stremio(
                 reel_api::stremio::Stremio::new(&base_url, Some("http://reel-api:3000")).unwrap(),
@@ -374,8 +374,8 @@ async fn mock_remote_upstreams(
             drop(calls);
             if uri.query().is_some_and(|query| query.contains("id=tmdb%3A410")) {
                 return Json(json!({"success":true,"data":{"results":[
-                    {"url":format!("{}/media/error.mp4",state.base_url),"parsedFile":{"container":"mp4"}},
-                    {"url":format!("{}/media/first.mp4",state.base_url),"parsedFile":{"container":"mp4"}}
+                    {"url":format!("{}/media/error.mp4",state.base_url),"parsedFile":{"container":"mp4","encode":"AVC"}},
+                    {"url":format!("{}/media/first.mp4",state.base_url),"parsedFile":{"container":"mp4","encode":"AVC"}}
                 ]}})).into_response();
             }
             if uri
@@ -509,7 +509,7 @@ async fn mock_remote_upstreams(
                                 "Range": "bytes=100-200"
                             },
                             "parsedFile": {
-                                "container": "mp4", "resolution": "2160p", "quality": "WEB-DL"
+                                "container": "mp4", "encode": "AVC", "resolution": "2160p", "quality": "WEB-DL"
                             },
                             "addon": "First addon", "service": "debrid", "cached": true,
                             "size": 2147483648_u64, "duration": 7200, "notWebReady": false,
@@ -701,7 +701,7 @@ async fn activates_a_real_movie_and_proxies_byte_ranges_without_exposing_credent
             .direct_play_url(
                 &movie.id,
                 source.container.as_deref(),
-                source.id.as_deref().unwrap(),
+                source.id.as_ref().unwrap(),
                 None,
             )
             .unwrap();
@@ -1249,4 +1249,71 @@ async fn safari_can_discover_mkv_and_play_scoped_stremio_hls() {
     let input = fixture.get(&input_url, Some("bytes=0-3")).await;
     assert_eq!(input.status(), StatusCode::PARTIAL_CONTENT);
     assert_eq!(input.headers()[header::CONTENT_RANGE], "bytes 0-3/8");
+}
+
+#[tokio::test]
+async fn cached_discovery_rechecks_capabilities_for_explicit_and_auto_activation() {
+    let fixture = RemoteFixture::new().await;
+    let target = json!({"kind":"movie","tmdbId":406});
+    let (_, discovery) = fixture
+        .post(
+            "/v1/playback/sources",
+            json!({"target":target,"capabilities":capabilities_with_matroska()}),
+        )
+        .await;
+    assert_eq!(discovery["sources"][0]["webReady"], true);
+    for selection in [
+        json!({"kind":"auto","discoveryId":discovery["discoveryId"]}),
+        json!({"kind":"aioStreams","discoveryId":discovery["discoveryId"],"candidateId":discovery["sources"][0]["id"]}),
+    ] {
+        let (status, _) = fixture
+            .post(
+                "/v1/playback/activate",
+                json!({"target":target,"selection":selection,"capabilities":capabilities()}),
+            )
+            .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    }
+    assert!(
+        fixture.calls.lock().unwrap().media_range.is_none(),
+        "incompatible sources must not be probed"
+    );
+    assert_eq!(fixture.calls.lock().unwrap().search_queries.len(), 1);
+}
+
+#[tokio::test]
+async fn a_more_capable_player_can_activate_a_previously_incompatible_discovery() {
+    let fixture = RemoteFixture::new().await;
+    let target = json!({"kind":"movie","tmdbId":406});
+    let (_, discovery) = fixture
+        .post(
+            "/v1/playback/sources",
+            json!({"target":target,"capabilities":capabilities()}),
+        )
+        .await;
+    assert_eq!(discovery["sources"][0]["webReady"], false);
+    let (status, _) = fixture.post("/v1/playback/activate", json!({
+        "target":target, "capabilities":capabilities_with_matroska(),
+        "selection":{"kind":"aioStreams","discoveryId":discovery["discoveryId"],"candidateId":discovery["sources"][0]["id"]}
+    })).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(fixture.calls.lock().unwrap().search_queries.len(), 1);
+}
+
+#[tokio::test]
+async fn repeated_playlists_keep_resource_urls_stable() {
+    let fixture = RemoteFixture::new().await;
+    let target = json!({"kind":"movie","tmdbId":10});
+    let (_, discovery) = fixture
+        .post("/v1/playback/sources", json!({"target":target}))
+        .await;
+    let (status, descriptor) = fixture.post("/v1/playback/activate", json!({
+        "target":target, "selection":{"kind":"aioStreams","discoveryId":discovery["discoveryId"],"candidateId":discovery["sources"][1]["id"]}
+    })).await;
+    assert_eq!(status, StatusCode::OK);
+    let path = descriptor["mediaUrl"].as_str().unwrap();
+    assert_eq!(
+        response_text(fixture.get(path, None).await).await,
+        response_text(fixture.get(path, None).await).await
+    );
 }

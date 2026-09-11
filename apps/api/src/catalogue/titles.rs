@@ -14,7 +14,7 @@ use super::{
     TitleSummaryIssueCode, map_details_error,
 };
 use crate::{
-    media::TmdbId,
+    media::{CatalogueId, TmdbId},
     seerr::{MovieDetails, SeriesDetails},
 };
 
@@ -31,29 +31,23 @@ pub(super) struct TitleKey {
 
 impl TitleKey {
     pub fn parse(value: &str, language: Option<&str>) -> Result<Self, Error> {
-        let parts: Vec<_> = value.split(':').collect();
-        let ["tmdb", kind, id] = parts.as_slice() else {
-            return Err(Error::InvalidQuery);
+        let (kind, id) = match value.parse().map_err(|_| Error::InvalidQuery)? {
+            CatalogueId::Movie(id) => (MediaKind::Movie, id),
+            CatalogueId::Series(id) => (MediaKind::Series, id),
+            CatalogueId::Season(_) | CatalogueId::Episode(_) => return Err(Error::InvalidQuery),
         };
-        let kind = match *kind {
-            "movie" => MediaKind::Movie,
-            "series" => MediaKind::Series,
-            _ => return Err(Error::InvalidQuery),
-        };
-        let id: TmdbId = id.parse().map_err(|_| Error::InvalidQuery)?;
-        let key = Self {
+        Ok(Self {
             kind,
             id,
             language: language.map(str::to_owned),
-        };
-        if key.canonical_id() != value {
-            return Err(Error::InvalidQuery);
-        }
-        Ok(key)
+        })
     }
 
-    fn canonical_id(&self) -> String {
-        format!("tmdb:{}:{}", self.kind.as_str(), self.id)
+    fn canonical_id(&self) -> CatalogueId {
+        match self.kind {
+            MediaKind::Movie => CatalogueId::Movie(self.id),
+            MediaKind::Series => CatalogueId::Series(self.id),
+        }
     }
 }
 
@@ -67,11 +61,11 @@ impl TitleMetadata {
     pub fn summary(&self) -> TitleSummary {
         match self {
             Self::Movie(movie) => TitleSummary::Movie {
-                id: format!("tmdb:movie:{}", movie.id),
+                id: CatalogueId::Movie(movie.id),
                 runtime_minutes: movie.runtime,
             },
             Self::Series(series) => TitleSummary::Series {
-                id: format!("tmdb:series:{}", series.id),
+                id: CatalogueId::Series(series.id),
                 number_of_seasons: series.number_of_seasons,
             },
         }

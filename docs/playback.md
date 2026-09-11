@@ -138,7 +138,7 @@ scoping, audio selection, subtitle selection in the real HLS manifest, proxied
 WebVTT cues, and turning subtitles off. For movies requiring HLS, the range check
 uses the session's static media resource. The HLS check downloads one video
 segment and stops its encoding session. Pure URL rewriting and resource
-validation remain unit tests in `src/playback.rs`.
+validation remain unit tests in `src/playback/`.
 
 `cargo test -p reel-api --test aiostreams -- --ignored` opts into a sanitized
 test against the configured real AIOStreams instance. It verifies direct movie
@@ -178,3 +178,39 @@ scene. A valid debrid subscription is required for these live provider sources.
 The shared scenario in `tests/e2e/mentalist-playback.mjs` also runs through the
 Codex browser API; this was used to reproduce the original error-video failure
 and visually verify the actual Pilot after the fix.
+
+## Implementation boundaries
+
+Playback keeps its public `Playback` entry point in `src/playback/mod.rs`.
+Private modules own Jellyfin negotiation, capability policy, proxy/HLS delivery,
+session data, ephemeral stores, wire types, IDs, and validated scalar values.
+Catalogue IDs format and parse through `media::CatalogueId`; AIOStreams search
+identifiers are formatted only at the provider boundary. JSON identifier formats
+remain unchanged.
+
+Discovery stores immutable provider metadata. Activation checks that snapshot
+against the current player capabilities, preserving candidate order without
+repeating discovery. Empty and omitted capability reports use identical defaults;
+unknown video codecs do not qualify for direct playback. Detailed direct-play
+profiles constrain both remote compatibility and Jellyfin negotiation.
+
+Playback positions must be finite, non-negative, and representable in Jellyfin
+ticks. Episode numbers are positive; season zero remains valid for specials.
+Subtitle selection retains the existing null/default, -1/off, and non-negative
+track-index wire convention. Invalid IMDb mappings from catalogue providers are
+omitted so AIOStreams can fall back to TMDb identifiers.
+
+The API keeps at most 1,024 sessions and 1,024 discovery snapshots. Expired entries
+are rejected on access and reclaimed on insertion. Capacity exhaustion returns
+`playback_capacity_exceeded` without evicting active playback. Each session reuses
+opaque IDs for repeated resource destinations and permits up to 65,536 distinct
+resources. Resource destinations retain whether they belong to original input
+or converted output, including nested input playlists. Diagnostics record safe
+failure categories and upstream status codes, never provider URLs or bodies.
+
+Failed or cancelled converter activation invalidates its provisional session;
+the next insertion reclaims the slot. Successful activation explicitly commits
+that session. Request validation failures use the standard JSON error envelope
+with `invalid_playback_request` and preserve the extractor's HTTP status. Fallback
+failures are logged once, either when another candidate is tried or at the HTTP
+boundary for the final error.

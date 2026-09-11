@@ -1,4 +1,6 @@
+mod ids;
 mod types;
+pub use ids::*;
 
 use std::fmt::Write as _;
 
@@ -126,24 +128,24 @@ impl Jellyfin {
         .await
     }
 
-    pub async fn item(&self, item_id: &str, user_id: &str) -> Result<Item> {
+    pub async fn item(&self, item_id: &JellyfinItemId, user_id: &JellyfinUserId) -> Result<Item> {
         self.http
             .get_with_query(
                 &format!("Items/{item_id}"),
-                &[("userId", user_id.to_owned())],
+                &[("userId", user_id.to_string())],
             )
             .await
     }
 
-    pub async fn latest(&self, user_id: &str, limit: u32) -> Result<Vec<Item>> {
+    pub async fn latest(&self, user_id: &JellyfinUserId, limit: u32) -> Result<Vec<Item>> {
         let mut parameters =
             common_item_parameters(&[ItemType::Movie, ItemType::Series, ItemType::Episode]);
-        parameters.push(("userId", user_id.to_owned()));
+        parameters.push(("userId", user_id.to_string()));
         push_number(&mut parameters, "limit", Some(limit));
         self.http.get_with_query("Items/Latest", &parameters).await
     }
 
-    pub async fn seasons(&self, series_id: &str) -> Result<ItemQueryResult> {
+    pub async fn seasons(&self, series_id: &JellyfinItemId) -> Result<ItemQueryResult> {
         let parameters = common_item_parameters(&[]);
         self.http
             .get_with_query(&format!("Shows/{series_id}/Seasons"), &parameters)
@@ -152,11 +154,15 @@ impl Jellyfin {
 
     pub async fn episodes(
         &self,
-        series_id: &str,
-        season_id: Option<&str>,
+        series_id: &JellyfinItemId,
+        season_id: Option<&JellyfinItemId>,
     ) -> Result<ItemQueryResult> {
         let mut parameters = common_item_parameters(&[]);
-        push_optional(&mut parameters, "seasonId", season_id);
+        push_optional(
+            &mut parameters,
+            "seasonId",
+            season_id.map(JellyfinItemId::as_str),
+        );
         self.http
             .get_with_query(&format!("Shows/{series_id}/Episodes"), &parameters)
             .await
@@ -164,8 +170,8 @@ impl Jellyfin {
 
     pub async fn playback_info(
         &self,
-        item_id: &str,
-        user_id: &str,
+        item_id: &JellyfinItemId,
+        user_id: &JellyfinUserId,
         request: &PlaybackInfoRequest,
     ) -> Result<PlaybackInfoResponse> {
         let mut request = request.clone();
@@ -177,7 +183,7 @@ impl Jellyfin {
 
     pub fn image_url(
         &self,
-        item_id: &str,
+        item_id: &JellyfinItemId,
         image_type: ImageType,
         options: &ImageOptions,
     ) -> Result<Url> {
@@ -207,9 +213,9 @@ impl Jellyfin {
 
     pub fn direct_play_url(
         &self,
-        item_id: &str,
+        item_id: &JellyfinItemId,
         container: Option<&str>,
-        media_source_id: &str,
+        media_source_id: &JellyfinMediaSourceId,
         play_session_id: Option<&str>,
     ) -> Result<Url> {
         let path = match container {
@@ -220,7 +226,7 @@ impl Jellyfin {
         {
             let mut query = url.query_pairs_mut();
             query.append_pair("static", "true");
-            query.append_pair("mediaSourceId", media_source_id);
+            query.append_pair("mediaSourceId", media_source_id.as_str());
             if let Some(value) = play_session_id {
                 query.append_pair("playSessionId", value);
             }

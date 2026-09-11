@@ -1,3 +1,4 @@
+use crate::media::{EpisodeNumber, ImdbTitleId, SeasonNumber, TmdbId};
 use std::{
     collections::HashMap,
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
@@ -59,26 +60,7 @@ impl AioStreams {
     }
 
     pub async fn search(&self, target: SearchTarget) -> Result<SearchOutcome> {
-        let (content_type, id) = match target {
-            SearchTarget::Movie { tmdb_id, imdb_id } => (
-                "movie",
-                imdb_id
-                    .filter(|id| is_imdb_title_id(id))
-                    .unwrap_or_else(|| format!("tmdb:{tmdb_id}")),
-            ),
-            SearchTarget::Episode {
-                series_tmdb_id,
-                imdb_id,
-                season_number,
-                episode_number,
-            } => (
-                "series",
-                imdb_id.filter(|id| is_imdb_title_id(id)).map_or_else(
-                    || format!("tmdb:{series_tmdb_id}:{season_number}:{episode_number}"),
-                    |id| format!("{id}:{season_number}:{episode_number}"),
-                ),
-            ),
-        };
+        let (content_type, id) = target.request_parameters();
         let envelope: SearchEnvelope = self
             .http
             .get_with_query(
@@ -256,21 +238,40 @@ impl AioStreams {
 #[derive(Debug, Clone)]
 pub enum SearchTarget {
     Movie {
-        tmdb_id: i64,
-        imdb_id: Option<String>,
+        tmdb_id: TmdbId,
+        imdb_id: Option<ImdbTitleId>,
     },
     Episode {
-        series_tmdb_id: i64,
-        imdb_id: Option<String>,
-        season_number: i32,
-        episode_number: i32,
+        series_tmdb_id: TmdbId,
+        imdb_id: Option<ImdbTitleId>,
+        season_number: SeasonNumber,
+        episode_number: EpisodeNumber,
     },
 }
 
-fn is_imdb_title_id(value: &str) -> bool {
-    value.strip_prefix("tt").is_some_and(|digits| {
-        !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit())
-    })
+impl SearchTarget {
+    fn request_parameters(&self) -> (&'static str, String) {
+        match self {
+            SearchTarget::Movie { tmdb_id, imdb_id } => (
+                "movie",
+                imdb_id
+                    .as_ref()
+                    .map_or_else(|| format!("tmdb:{tmdb_id}"), ToString::to_string),
+            ),
+            SearchTarget::Episode {
+                series_tmdb_id,
+                imdb_id,
+                season_number,
+                episode_number,
+            } => (
+                "series",
+                imdb_id.as_ref().map_or_else(
+                    || format!("tmdb:{series_tmdb_id}:{season_number}:{episode_number}"),
+                    |id| format!("{id}:{season_number}:{episode_number}"),
+                ),
+            ),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -547,6 +548,42 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn formats_provider_search_ids_without_catalogue_kind_prefixes() {
+        let tmdb_id = TmdbId::new(42).unwrap();
+        let imdb_id = "tt0123456".parse::<ImdbTitleId>().unwrap();
+        assert_eq!(
+            SearchTarget::Movie {
+                tmdb_id,
+                imdb_id: None
+            }
+            .request_parameters(),
+            ("movie", "tmdb:42".into())
+        );
+        assert_eq!(
+            SearchTarget::Movie {
+                tmdb_id,
+                imdb_id: Some(imdb_id.clone())
+            }
+            .request_parameters(),
+            ("movie", "tt0123456".into())
+        );
+        let episode = |imdb_id| SearchTarget::Episode {
+            series_tmdb_id: tmdb_id,
+            imdb_id,
+            season_number: SeasonNumber::new(0).unwrap(),
+            episode_number: 2.try_into().unwrap(),
+        };
+        assert_eq!(
+            episode(None).request_parameters(),
+            ("series", "tmdb:42:0:2".into())
+        );
+        assert_eq!(
+            episode(Some(imdb_id)).request_parameters(),
+            ("series", "tt0123456:0:2".into())
+        );
+    }
 
     #[test]
     fn accepts_only_credential_free_http_urls() {

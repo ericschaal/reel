@@ -25,7 +25,7 @@ impl Stremio {
                 .read_timeout(Duration::from_secs(60))
                 .redirect(reqwest::redirect::Policy::none())
                 .build()
-                .map_err(|_| crate::playback::Error::StremioUnavailable)?,
+                .map_err(crate::playback::Error::StremioTransport)?,
         })
     }
 
@@ -71,9 +71,9 @@ impl Stremio {
             .get(url)
             .send()
             .await
-            .map_err(|_| crate::playback::Error::StremioUnavailable)?
+            .map_err(crate::playback::Error::StremioTransport)?
             .error_for_status()
-            .map_err(|_| crate::playback::Error::StremioUnavailable)
+            .map_err(crate::playback::Error::StremioTransport)
     }
 }
 

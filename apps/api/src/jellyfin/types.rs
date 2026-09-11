@@ -1,3 +1,4 @@
+use super::{JellyfinItemId, JellyfinMediaSourceId, JellyfinUserId};
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
@@ -18,7 +19,7 @@ pub struct PublicSystemInfo {
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(rename_all = "PascalCase")]
 pub struct User {
-    pub id: String,
+    pub id: JellyfinUserId,
     pub name: Option<String>,
 }
 
@@ -34,7 +35,7 @@ pub struct ItemQueryResult {
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(rename_all = "PascalCase")]
 pub struct Item {
-    pub id: String,
+    pub id: JellyfinItemId,
     pub name: Option<String>,
     #[serde(rename = "Type")]
     pub item_type: Option<String>,
@@ -136,13 +137,13 @@ impl SortOrder {
 #[derive(Debug, Clone, Serialize, Default, PartialEq)]
 #[serde(rename_all = "PascalCase")]
 pub struct PlaybackInfoRequest {
-    pub user_id: Option<String>,
+    pub user_id: Option<JellyfinUserId>,
     pub max_streaming_bitrate: Option<i32>,
     pub start_time_ticks: Option<i64>,
     pub audio_stream_index: Option<i32>,
     pub subtitle_stream_index: Option<i32>,
     pub max_audio_channels: Option<i32>,
-    pub media_source_id: Option<String>,
+    pub media_source_id: Option<JellyfinMediaSourceId>,
     pub device_profile: Option<DeviceProfile>,
     pub enable_direct_play: Option<bool>,
     pub enable_direct_stream: Option<bool>,
@@ -323,7 +324,7 @@ pub struct PlaybackInfoResponse {
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 #[serde(rename_all = "PascalCase")]
 pub struct MediaSource {
-    pub id: Option<String>,
+    pub id: Option<JellyfinMediaSourceId>,
     pub name: Option<String>,
     pub protocol: Option<String>,
     #[serde(rename = "Type")]

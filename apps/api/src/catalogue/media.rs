@@ -1,3 +1,4 @@
+use crate::media::CatalogueId;
 use std::collections::HashMap;
 
 use crate::{
@@ -37,7 +38,7 @@ pub(super) async fn local_movies(
             Some((
                 tmdb_id,
                 LocalCopy {
-                    jellyfin_item_id: item.id,
+                    jellyfin_item_id: item.id.to_string(),
                 },
             ))
         })
@@ -123,9 +124,12 @@ pub(super) fn normalize_series_details(details: SeriesDetails) -> SeriesDetailsR
     SeriesDetailsResponse {
         kind: MediaKind::Series,
         availability: Availability::EpisodeBased,
-        id: format!("tmdb:series:{}", details.id),
+        id: CatalogueId::Series(details.id),
         tmdb_id: details.id,
-        imdb_id: details.external_ids.and_then(|ids| ids.imdb_id),
+        imdb_id: details
+            .external_ids
+            .and_then(|ids| ids.imdb_id)
+            .and_then(|id| id.parse().ok()),
         title: details.name,
         overview: details.overview,
         year: year(details.first_air_date.as_deref()),
@@ -140,7 +144,7 @@ pub(super) fn normalize_series_details(details: SeriesDetails) -> SeriesDetailsR
             .seasons
             .into_iter()
             .map(|season| SeasonSummary {
-                id: format!("tmdb:season:{}", season.id),
+                id: CatalogueId::Season(season.id),
                 season_number: season.season_number,
                 title: season.name,
                 overview: season.overview,
@@ -174,9 +178,9 @@ pub(super) fn normalize_movie_details(
     MovieDetailsResponse {
         kind: MediaKind::Movie,
         issues: Vec::new(),
-        id: format!("tmdb:movie:{}", details.id),
+        id: CatalogueId::Movie(details.id),
         tmdb_id: details.id,
-        imdb_id: details.imdb_id,
+        imdb_id: details.imdb_id.and_then(|id| id.parse().ok()),
         title: details.title,
         overview: details.overview,
         year: year(details.release_date.as_deref()),
@@ -200,7 +204,7 @@ pub(super) fn normalize_season_details(
         .iter()
         .any(|issue| issue.source == super::CatalogueSource::Jellyfin);
     SeasonDetailsResponse {
-        id: format!("tmdb:season:{}", details.id),
+        id: CatalogueId::Season(details.id),
         series_tmdb_id,
         season_number: details.season_number,
         title: details.name,
@@ -213,7 +217,7 @@ pub(super) fn normalize_season_details(
             .map(|episode| {
                 let local = local_episodes.remove(&episode.episode_number);
                 Episode {
-                    id: format!("tmdb:episode:{}", episode.id),
+                    id: CatalogueId::Episode(episode.id),
                     tmdb_id: episode.id,
                     season_number: episode.season_number,
                     episode_number: episode.episode_number,
@@ -250,7 +254,10 @@ fn normalize(
     let card = MediaCard {
         runtime_minutes: None,
         number_of_seasons: None,
-        id: format!("tmdb:{}:{}", kind.as_str(), item.id),
+        id: match kind {
+            MediaKind::Movie => CatalogueId::Movie(item.id),
+            MediaKind::Series => CatalogueId::Series(item.id),
+        },
         tmdb_id: item.id,
         title,
         year,
@@ -304,7 +311,7 @@ mod tests {
     fn selects_the_first_populated_regular_season_before_specials() {
         let seasons = vec![
             SeasonSummary {
-                id: "specials".into(),
+                id: CatalogueId::Season(tmdb_id(1)),
                 season_number: season_number(0),
                 title: "Specials".into(),
                 overview: None,
@@ -313,7 +320,7 @@ mod tests {
                 poster: None,
             },
             SeasonSummary {
-                id: "empty".into(),
+                id: CatalogueId::Season(tmdb_id(2)),
                 season_number: season_number(1),
                 title: "Season 1".into(),
                 overview: None,
@@ -322,7 +329,7 @@ mod tests {
                 poster: None,
             },
             SeasonSummary {
-                id: "season-two".into(),
+                id: CatalogueId::Season(tmdb_id(3)),
                 season_number: season_number(2),
                 title: "Season 2".into(),
                 overview: None,
@@ -364,7 +371,7 @@ mod tests {
 
         let season = normalize_season_details(tmdb_id(100), details, local_episodes, Vec::new());
 
-        assert_eq!(season.episodes[0].id, "tmdb:episode:201");
+        assert_eq!(season.episodes[0].id.to_string(), "tmdb:episode:201");
         assert_eq!(season.episodes[0].overview, None);
         assert_eq!(season.episodes[0].runtime_minutes, Some(52));
         assert_eq!(season.episodes[0].availability, Availability::Local);

@@ -22,8 +22,8 @@ async fn discovers_direct_movies_and_exact_episodes_on_the_real_instance() {
     let aiostreams = client();
     let movie = aiostreams
         .search(SearchTarget::Movie {
-            tmdb_id: 550,
-            imdb_id: Some("tt0137523".into()),
+            tmdb_id: 550.try_into().unwrap(),
+            imdb_id: Some("tt0137523".parse().unwrap()),
         })
         .await
         .expect("search the configured AIOStreams instance for a movie");
@@ -39,10 +39,10 @@ async fn discovers_direct_movies_and_exact_episodes_on_the_real_instance() {
 
     let episode = aiostreams
         .search(SearchTarget::Episode {
-            series_tmdb_id: 5920,
-            imdb_id: Some("tt1196946".into()),
-            season_number: 1,
-            episode_number: 1,
+            series_tmdb_id: 5920.try_into().unwrap(),
+            imdb_id: Some("tt1196946".parse().unwrap()),
+            season_number: 1.try_into().unwrap(),
+            episode_number: 1.try_into().unwrap(),
         })
         .await
         .expect("search the configured AIOStreams instance for an exact episode");

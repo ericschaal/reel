@@ -384,7 +384,7 @@ async fn serves_series_seasons_and_episodes_as_reel_media() {
     assert!(
         season_details.episodes.iter().all(|episode| {
             episode.season_number == season.season_number
-                && episode.id == format!("tmdb:episode:{}", episode.tmdb_id)
+                && episode.id == reel_api::media::CatalogueId::Episode(episode.tmdb_id)
         }),
         "episodes should have canonical TMDB identities within the requested season"
     );
