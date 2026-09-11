@@ -106,11 +106,24 @@ export function KeyboardNavigation() {
           : document.activeElement instanceof HTMLElement
             ? document.activeElement
             : null;
+      const firstRail = root.querySelector<HTMLElement>(
+        "[data-keyboard-rail]",
+      );
+      const currentMenuItem = root.querySelector<HTMLElement>(
+        '[data-keyboard-menu] [aria-current="page"]',
+      );
+      const menuEntryTarget =
+        direction === "down" &&
+        requestedOrigin?.closest("[data-keyboard-menu]")
+          ? firstRail?.querySelector<HTMLElement>(focusableSelector)
+          : null;
       const rail =
         requestedOrigin &&
         root.contains(requestedOrigin) &&
         (direction === "left" || direction === "right")
-          ? requestedOrigin.closest("[data-keyboard-rail]")
+          ? requestedOrigin.closest(
+              "[data-keyboard-horizontal-group], [data-keyboard-rail]",
+            )
           : null;
       const candidates = Array.from(
         (rail ?? root).querySelectorAll<HTMLElement>(focusableSelector),
@@ -121,13 +134,32 @@ export function KeyboardNavigation() {
         requestedOrigin && candidates.includes(requestedOrigin)
           ? requestedOrigin
           : null;
-      const next = activeElement
+      const directionalTarget = activeElement
         ? findDirectionalTarget(activeElement, candidates, direction)
         : initialTarget(candidates);
+      const menuReturnTarget =
+        direction === "up" &&
+        requestedOrigin &&
+        currentMenuItem &&
+        (firstRail?.contains(requestedOrigin) ||
+          directionalTarget?.closest("[data-keyboard-menu]"))
+          ? currentMenuItem
+          : null;
+      const next =
+        menuReturnTarget && isFocusable(menuReturnTarget)
+          ? menuReturnTarget
+          : menuEntryTarget && isFocusable(menuEntryTarget)
+          ? menuEntryTarget
+          : directionalTarget;
       if (!next) return;
 
       event.preventDefault();
-      next.focus({ preventScroll: true });
+      next.dataset.keyboardFocusDirection = direction;
+      try {
+        next.focus({ preventScroll: true });
+      } finally {
+        delete next.dataset.keyboardFocusDirection;
+      }
       revealFocusedElement(next, event.repeat);
     }
 

@@ -9,5 +9,5 @@ export default async function Home({
   const { surface: query } = await searchParams;
   const surface: Surface =
     query === "movies" || query === "series" ? query : "discover";
-  return <CatalogueBrowser key={surface} surface={surface} />;
+  return <CatalogueBrowser surface={surface} />;
 }

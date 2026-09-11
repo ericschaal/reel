@@ -156,6 +156,63 @@ test("horizontal navigation does not escape the active rail", () => {
   assert.equal(document.activeElement, railItem);
 });
 
+test("down from the catalogue menu enters the first content rail", () => {
+  const menu = document.createElement("nav");
+  menu.dataset.keyboardMenu = "true";
+  document.body.append(menu);
+  const menuItem = addButton("Movies", 500, 0);
+  menu.append(menuItem);
+
+  const rail = document.createElement("div");
+  rail.dataset.keyboardRail = "true";
+  document.body.append(rail);
+  const firstCard = addButton("First card", 0, 180);
+  const nearbyAction = addButton("View all", 500, 140);
+  rail.append(firstCard);
+
+  menuItem.focus();
+  press(menuItem, "ArrowDown");
+
+  assert.equal(document.activeElement, firstCard);
+  assert.notEqual(document.activeElement, nearbyAction);
+});
+
+test("up into the catalogue menu returns to the current tab", () => {
+  const menu = document.createElement("nav");
+  menu.dataset.keyboardMenu = "true";
+  document.body.append(menu);
+  const currentTab = addButton("Discover", 0, 0);
+  currentTab.setAttribute("aria-current", "page");
+  const nearbyTab = addButton("Movies", 500, 0);
+  menu.append(currentTab, nearbyTab);
+
+  const firstRail = document.createElement("div");
+  firstRail.dataset.keyboardRail = "true";
+  document.body.append(firstRail);
+  const card = addButton("Card", 500, 180);
+  firstRail.append(card);
+
+  card.focus();
+  press(card, "ArrowUp");
+
+  assert.equal(document.activeElement, currentTab);
+});
+
+test("spatial focus exposes its direction only during the focus event", () => {
+  const first = addButton("First", 0, 0);
+  const second = addButton("Second", 140, 0);
+  let focusDirection;
+  second.addEventListener("focus", () => {
+    focusDirection = second.dataset.keyboardFocusDirection;
+  });
+
+  first.focus();
+  press(first, "ArrowRight");
+
+  assert.equal(focusDirection, "right");
+  assert.equal(second.dataset.keyboardFocusDirection, undefined);
+});
+
 test("the last-used input modality is exclusive", () => {
   const first = addButton("First", 0, 0);
   addButton("Second", 140, 0);

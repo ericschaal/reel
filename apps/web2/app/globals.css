@@ -173,6 +173,99 @@
       transform: translateY(-0.25rem) scale(var(--interactive-card-scale));
     }
   }
+
+  .catalogue-nav-item {
+    color: var(--color-muted);
+    font-weight: 500;
+    outline: none;
+  }
+
+  .catalogue-nav {
+    --catalogue-nav-accent: #ffd166;
+  }
+
+  .catalogue-nav-item::after {
+    position: absolute;
+    right: 0;
+    bottom: 0.1rem;
+    left: 0;
+    height: 2px;
+    border-radius: 999px;
+    background: var(--catalogue-nav-accent);
+    content: "";
+    opacity: 0;
+    transform: scaleX(0.35);
+    transition:
+      opacity 120ms ease-out,
+      transform 160ms ease-out;
+  }
+
+  .catalogue-nav-item[data-visual-current="true"] {
+    color: var(--color-ink);
+    text-shadow: 0 0 18px rgb(255 255 255 / 0.12);
+  }
+
+  .catalogue-nav-item[data-visual-current="true"]::after {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+
+  :root[data-input-modality="keyboard"]
+    .catalogue-nav:focus-within
+    .catalogue-nav-item[data-visual-current="true"]:not(:focus),
+  :root:not([data-input-modality])
+    .catalogue-nav:focus-within
+    .catalogue-nav-item[data-visual-current="true"]:not(:focus),
+  :root[data-input-modality="pointer"]
+    .catalogue-nav:has(.catalogue-nav-item:hover)
+    .catalogue-nav-item[data-visual-current="true"]:not(:hover),
+  :root:not([data-input-modality])
+    .catalogue-nav:has(.catalogue-nav-item:hover)
+    .catalogue-nav-item[data-visual-current="true"]:not(:hover) {
+    color: var(--color-muted);
+    text-shadow: none;
+  }
+
+  :root[data-input-modality="keyboard"]
+    .catalogue-nav:focus-within
+    .catalogue-nav-item[data-visual-current="true"]:not(:focus)::after,
+  :root:not([data-input-modality])
+    .catalogue-nav:focus-within
+    .catalogue-nav-item[data-visual-current="true"]:not(:focus)::after,
+  :root[data-input-modality="pointer"]
+    .catalogue-nav:has(.catalogue-nav-item:hover)
+    .catalogue-nav-item[data-visual-current="true"]:not(:hover)::after,
+  :root:not([data-input-modality])
+    .catalogue-nav:has(.catalogue-nav-item:hover)
+    .catalogue-nav-item[data-visual-current="true"]:not(:hover)::after {
+    opacity: 0;
+  }
+
+  :root:not([data-input-modality]) .catalogue-nav-item:hover,
+  :root[data-input-modality="pointer"] .catalogue-nav-item:hover {
+    color: var(--catalogue-nav-accent);
+    text-shadow: 0 0 18px rgb(255 209 102 / 0.24);
+  }
+
+  :root:not([data-input-modality]) .catalogue-nav-item:hover::after,
+  :root[data-input-modality="pointer"] .catalogue-nav-item:hover::after {
+    opacity: 0.65;
+    transform: scaleX(0.65);
+  }
+
+  :root:not([data-input-modality]) .catalogue-nav-item:focus-visible,
+  :root[data-input-modality="keyboard"] .catalogue-nav-item:focus {
+    background: transparent;
+    box-shadow: none;
+    color: var(--catalogue-nav-accent);
+    text-shadow: 0 0 20px rgb(255 209 102 / 0.3);
+  }
+
+  :root:not([data-input-modality]) .catalogue-nav-item:focus-visible::after,
+  :root[data-input-modality="keyboard"] .catalogue-nav-item:focus::after {
+    opacity: 1;
+    transform: scaleX(1);
+  }
 }
 
 @layer components {

@@ -64,6 +64,82 @@ test("catalogue cards share one hover and keyboard-focus treatment", async () =>
   assert.match(styles, /prefers-reduced-motion: no-preference/);
 });
 
+test("catalogue menu switches immediately with keyboard focus and preserves navigation state", async () => {
+  const [browser, page, ui, styles] = await Promise.all([
+    readFile(new URL("../app/catalogue-browser.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/ui.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(browser, /useRouter\(\)/);
+  assert.match(browser, /useOptimistic\(surface\)/);
+  assert.match(browser, /setVisualSurface\(item\.id\)/);
+  assert.match(browser, /data-visual-current=/);
+  assert.match(browser, /data-keyboard-menu="true"/);
+  assert.match(browser, /tabIndex=\{surface === item\.id \? 0 : -1\}/);
+  assert.match(browser, /dataset\.keyboardFocusDirection/);
+  assert.match(browser, /direction === "left" \|\| direction === "right"/);
+  assert.match(browser, /router\.replace\([^;]+scroll: false/s);
+  assert.doesNotMatch(browser, /createDebouncedPublisher/);
+  assert.doesNotMatch(browser, /MENU_FOCUS_DELAY_MS/);
+  assert.match(ui, /catalogue-nav-item/);
+  assert.doesNotMatch(ui, /catalogueNavItemClass\s*=\s*[^;]+interactive-card/s);
+  assert.doesNotMatch(browser, /border-r/);
+  assert.doesNotMatch(page, /<CatalogueBrowser key=\{surface\}/);
+  assert.doesNotMatch(ui, /catalogueNavItemClass[^;]+border/s);
+  assert.match(styles, /\.catalogue-nav-item:focus/);
+  assert.match(styles, /--catalogue-nav-accent: #ffd166/);
+  assert.match(styles, /color: var\(--catalogue-nav-accent\)/);
+  assert.doesNotMatch(
+    styles,
+    /catalogue-nav-item:focus[^{]*\{[^}]*background: var\(--color-accent\)/s,
+  );
+  assert.doesNotMatch(ui, /catalogueNavGroupClass[^;]+(?:rounded|border|shadow|backdrop)/s);
+  assert.doesNotMatch(ui, /catalogueNavItemClass[^;]+rounded/s);
+  assert.doesNotMatch(
+    styles,
+    /catalogue-nav-item:hover\s*\{[^}]*\btransform:/s,
+  );
+  assert.match(
+    styles,
+    /:root\[data-input-modality="pointer"\] \.catalogue-nav-item:hover\s*\{[^}]*color: var\(--catalogue-nav-accent\)/s,
+  );
+  assert.match(
+    styles,
+    /\.catalogue-nav-item\s*\{[^}]*font-weight: 500/s,
+  );
+  assert.doesNotMatch(
+    styles,
+    /\.catalogue-nav-item\[aria-current="page"\]\s*\{[^}]*font-weight/s,
+  );
+  assert.match(
+    styles,
+    /\.catalogue-nav-item\[data-visual-current="true"\]\s*\{[^}]*color: var\(--color-ink\)/s,
+  );
+  assert.match(
+    styles,
+    /\.catalogue-nav-item\[data-visual-current="true"\]::after\s*\{[^}]*opacity: 1/s,
+  );
+  assert.doesNotMatch(styles, /\.catalogue-nav-item\[aria-current="page"\]/);
+  assert.doesNotMatch(
+    styles,
+    /catalogue-nav-item:focus\s*\{[^}]*font-weight/s,
+  );
+  assert.doesNotMatch(
+    styles,
+    /\.catalogue-nav-item\s*\{[^}]*transition:/s,
+  );
+  assert.match(
+    styles,
+    /\.catalogue-nav:focus-within\s+\.catalogue-nav-item\[data-visual-current="true"\]:not\(:focus\)/s,
+  );
+  assert.match(
+    styles,
+    /\.catalogue-nav:has\(\.catalogue-nav-item:hover\)[^\{]+\.catalogue-nav-item\[data-visual-current="true"\]:not\(:hover\)/s,
+  );
+});
+
 test("library availability uses an accessible download icon", async () => {
   const source = await readFile(
     new URL("../app/media-card.tsx", import.meta.url),
