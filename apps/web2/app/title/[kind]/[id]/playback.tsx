@@ -1,11 +1,18 @@
+import { queryOptions } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import type { Episode, TitleMedia, PlaybackProgress } from "../../../catalogue";
-import { Eyebrow, NavigationHeader, primaryButtonClass } from "../../../ui";
+import { Dialog } from "../../../dialog";
+import {
+  buttonClass,
+  Eyebrow,
+  NavigationHeader,
+  primaryButtonClass,
+} from "../../../ui";
 import { ReelVideoPlayer } from "./video-player";
 
 export type PlaybackDescriptor = {
   sessionId: string;
-  source: "jellyfin";
+  source: "jellyfin" | "aioStreams";
   delivery: "direct" | "hls";
   mediaUrl: string;
   container: string | null;
@@ -30,9 +37,45 @@ export type PlaybackTrackSelection = {
   subtitleStreamIndex?: number;
 };
 
+export type SourceSelection =
+  | { kind: "auto" }
+  | { kind: "jellyfin" }
+  | { kind: "aioStreams"; discoveryId: string; candidateId: string };
+
+export type PlaybackCandidate = {
+  id: string;
+  source: "jellyfin" | "aioStreams";
+  label: string;
+  description: string | null;
+  preferred: boolean;
+  addon: string | null;
+  service: string | null;
+  cached: boolean | null;
+  resolution: string | null;
+  quality: string | null;
+  container: string | null;
+  sizeBytes: number | null;
+  webReady: boolean;
+};
+
+export type SourceDiscovery = {
+  discoveryId: string;
+  sources: PlaybackCandidate[];
+  issues: Array<{
+    source: "jellyfin" | "aioStreams";
+    code: "partialResults" | "upstreamUnavailable";
+  }>;
+};
+
+export type SourcePickerState =
+  | { status: "loading" }
+  | { status: "ready"; discovery: SourceDiscovery }
+  | { status: "error"; message: string };
+
 type PlaybackSelection = PlaybackTrackSelection & {
   resumeSeconds?: number;
   episode?: Episode;
+  sourceSelection?: SourceSelection;
 };
 
 export type ActivePlayback = PlaybackSelection &
@@ -42,12 +85,63 @@ export type ActivePlayback = PlaybackSelection &
     | { status: "error"; message: string }
   );
 
-export async function activateJellyfinPlayback(
+function playbackTarget(media: TitleMedia, episode?: Episode) {
+  if (episode) {
+    return {
+      kind: "episode" as const,
+      tmdbId: episode.tmdbId,
+      seriesTmdbId: media.tmdbId,
+      seasonNumber: episode.seasonNumber,
+      episodeNumber: episode.episodeNumber,
+    };
+  }
+  if (media.kind === "series") {
+    throw new Error("Choose an episode before starting playback.");
+  }
+  return { kind: "movie" as const, tmdbId: media.tmdbId };
+}
+
+export async function discoverPlaybackSources(
+  media: TitleMedia,
+  episode?: Episode,
+  signal?: AbortSignal,
+) {
+  const response = await fetch("/v1/playback/sources", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({ target: playbackTarget(media, episode) }),
+    signal,
+  });
+  if (!response.ok) throw await playbackResponseError(response, "Source discovery");
+  return response.json() as Promise<SourceDiscovery>;
+}
+
+export function playbackSourcesQuery(media: TitleMedia, episode?: Episode) {
+  return queryOptions({
+    queryKey: [
+      "reel",
+      "playback",
+      "sources",
+      media.kind,
+      media.tmdbId,
+      episode?.tmdbId ?? null,
+      episode?.seasonNumber ?? null,
+      episode?.episodeNumber ?? null,
+    ] as const,
+    queryFn: ({ signal }) => discoverPlaybackSources(media, episode, signal),
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    retry: 1,
+  });
+}
+
+export async function activatePlayback(
   media: TitleMedia,
   episode?: Episode,
   resumeSeconds?: number,
   signal?: AbortSignal,
   trackSelection: PlaybackTrackSelection = {},
+  sourceSelection: SourceSelection = { kind: "auto" },
 ) {
   const video = document.createElement("video");
   const supportsMp4 = Boolean(
@@ -56,20 +150,12 @@ export async function activateJellyfinPlayback(
   const supportsWebm = Boolean(
     video.canPlayType('video/webm; codecs="vp9, opus"'),
   );
-  const target = episode
-    ? {
-        kind: "episode" as const,
-        tmdbId: episode.tmdbId,
-        seriesTmdbId: media.tmdbId,
-        seasonNumber: episode.seasonNumber,
-        episodeNumber: episode.episodeNumber,
-      }
-    : { kind: "movie" as const, tmdbId: media.tmdbId };
   const response = await fetch("/v1/playback/activate", {
     method: "POST",
     headers: { "content-type": "application/json", accept: "application/json" },
     body: JSON.stringify({
-      target,
+      target: playbackTarget(media, episode),
+      selection: sourceSelection,
       startPositionSeconds: resumeSeconds,
       ...trackSelection,
       capabilities: {
@@ -90,15 +176,15 @@ export async function activateJellyfinPlayback(
     }),
     signal,
   });
-  if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as
-      | { error?: { message?: string } }
-      | null;
-    throw new Error(
-      body?.error?.message ?? `Playback activation failed (${response.status})`,
-    );
-  }
+  if (!response.ok) throw await playbackResponseError(response, "Playback activation");
   return response.json() as Promise<PlaybackDescriptor>;
+}
+
+async function playbackResponseError(response: Response, action: string) {
+  const body = (await response.json().catch(() => null)) as
+    | { error?: { message?: string } }
+    | null;
+  return new Error(body?.error?.message ?? `${action} failed (${response.status})`);
 }
 
 export function PlayerView({
@@ -135,7 +221,7 @@ export function PlayerView({
           <div className="mt-8">
             <Eyebrow>
               {playback.status === "loading"
-                ? "Opening Jellyfin"
+                ? "Preparing stream"
                 : "Playback unavailable"}
             </Eyebrow>
           </div>
@@ -150,7 +236,7 @@ export function PlayerView({
           ) : null}
           {playback.status === "loading" ? (
             <p className="mt-6 text-sm text-muted">
-              Negotiating the best compatible local stream…
+              Resolving the best compatible source…
             </p>
           ) : (
             <>
@@ -208,24 +294,47 @@ export function ProgressBar({
   );
 }
 
-export function PlaybackControl({
+export function WatchNowControl({
   progress,
-  disabled,
   onPlay,
+  onOpenSources,
+  sourcesOpen = false,
+  disabled = false,
 }: {
   progress: PlaybackProgress | null;
-  disabled: boolean;
   onPlay: (resumeSeconds?: number) => void;
+  onOpenSources: (resumeSeconds?: number) => void;
+  sourcesOpen?: boolean;
+  disabled?: boolean;
 }) {
+  const resumeSeconds = progress?.positionSeconds;
   return (
-    <button
-      type="button"
-      className={primaryButtonClass}
-      disabled={disabled}
-      onClick={() => onPlay(progress?.positionSeconds)}
+    <div
+      className="inline-flex min-h-11 overflow-hidden rounded-full border border-accent bg-accent text-background shadow-sm"
+      role="group"
+      aria-label="Playback actions"
     >
-      <PlayIcon /> {progress ? `Resume · ${formatRemaining(progress)}` : "Play"}
-    </button>
+      <button
+        type="button"
+        className="inline-flex min-h-11 items-center justify-center gap-2 px-5 py-2.5 text-sm font-semibold transition-colors hover:bg-amber-300 focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-background disabled:cursor-not-allowed disabled:opacity-50"
+        disabled={disabled}
+        onClick={() => onPlay(resumeSeconds)}
+      >
+        <PlayIcon /> {progress ? `Resume · ${formatRemaining(progress)}` : "Watch Now"}
+      </button>
+      <button
+        type="button"
+        className="grid min-h-11 min-w-11 place-items-center border-l border-background/25 px-3 transition-colors hover:bg-amber-300 focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-background disabled:cursor-not-allowed disabled:opacity-50"
+        aria-label="Choose another playback source"
+        aria-haspopup="dialog"
+        aria-expanded={sourcesOpen}
+        title="Choose another source"
+        disabled={disabled}
+        onClick={() => onOpenSources(resumeSeconds)}
+      >
+        <ChevronDownIcon />
+      </button>
+    </div>
   );
 }
 
@@ -236,9 +345,97 @@ export function PlaybackHint({
 }) {
   return progress ? (
     <p className="mt-4 text-xs leading-5 text-muted">
-      Resume uses the local Jellyfin copy.
+      Watch Now prefers the local Jellyfin copy when one is available.
     </p>
   ) : null;
+}
+
+export function SourcePickerDialog({
+  state,
+  onClose,
+  onRetry,
+  onChoose,
+}: {
+  state: SourcePickerState;
+  onClose: () => void;
+  onRetry: () => void;
+  onChoose: (source: PlaybackCandidate) => void;
+}) {
+  return (
+    <Dialog labelledBy="source-picker-title" onClose={onClose} className="max-w-xl">
+      <div className="flex items-start justify-between gap-5">
+        <div>
+          <Eyebrow>Playback</Eyebrow>
+          <h2 id="source-picker-title" className="text-2xl font-semibold">
+            Choose a source
+          </h2>
+        </div>
+        <button
+          type="button"
+          className="min-h-11 px-2 text-sm text-muted hover:text-ink"
+          onClick={onClose}
+        >
+          Close
+        </button>
+      </div>
+      {state.status === "loading" ? (
+        <p className="mt-8 text-sm text-muted" role="status">
+          Finding direct streams…
+        </p>
+      ) : state.status === "error" ? (
+        <div className="mt-8" role="alert">
+          <p className="text-sm text-amber-200">{state.message}</p>
+          <button type="button" className={`${buttonClass} mt-5`} onClick={onRetry}>
+            Try again
+          </button>
+        </div>
+      ) : state.discovery.sources.length ? (
+        <>
+          <ul className="mt-6 grid gap-2">
+            {state.discovery.sources.map((source, index) => (
+              <li key={`${source.source}:${source.id}`}>
+                <button
+                  type="button"
+                  className="group flex min-h-14 w-full items-center gap-3 rounded-xl border border-white/10 bg-white/4 px-3 py-2.5 text-left transition-colors hover:border-accent/55 hover:bg-white/8 focus-visible:border-accent disabled:cursor-not-allowed disabled:opacity-45"
+                  disabled={!source.webReady}
+                  onClick={() => onChoose(source)}
+                >
+                  <span className="grid size-8 shrink-0 place-items-center rounded-full bg-white/7 font-mono text-[0.65rem] font-semibold text-muted group-hover:text-accent">
+                    {source.preferred ? <PlayIcon /> : index + 1}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-semibold">
+                      {source.label}
+                    </span>
+                    <span className="mt-1 block truncate text-xs text-muted">
+                      {source.description ??
+                        (source.source === "jellyfin" ? "Jellyfin" : "Direct stream")}
+                    </span>
+                  </span>
+                  <span className="shrink-0 rounded-full border border-white/10 px-2 py-1 text-[0.65rem] font-semibold tracking-wide text-muted uppercase">
+                    {!source.webReady
+                      ? "Unavailable"
+                      : source.preferred
+                        ? "Local"
+                        : source.container?.toUpperCase() ?? "Direct"}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          {state.discovery.issues.length ? (
+            <p className="mt-5 text-xs leading-5 text-muted">
+              Some providers could not be reached; available results are still shown.
+            </p>
+          ) : null}
+        </>
+      ) : (
+        <p className="mt-8 text-sm text-muted" role="status">
+          No direct streams are available for this title.
+        </p>
+      )}
+    </Dialog>
+  );
 }
 
 export function formatRemaining(progress: PlaybackProgress) {
@@ -300,6 +497,19 @@ function PlayIcon() {
       viewBox="0 0 16 16"
     >
       <path d="M3.5 2.2a1 1 0 0 1 1.5-.86l9 5.8a1 1 0 0 1 0 1.72l-9 5.8a1 1 0 0 1-1.5-.86V2.2Z" />
+    </svg>
+  );
+}
+
+function ChevronDownIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      className="size-4 fill-none stroke-current"
+      viewBox="0 0 16 16"
+      strokeWidth="1.75"
+    >
+      <path d="m4 6 4 4 4-4" />
     </svg>
   );
 }

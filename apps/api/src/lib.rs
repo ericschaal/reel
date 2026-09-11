@@ -1,3 +1,4 @@
+pub mod aiostreams;
 pub mod catalogue;
 pub mod integration;
 pub mod jellyfin;

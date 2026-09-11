@@ -9,15 +9,36 @@ import {
   loadTitle,
   numericQueryValue,
   progressValue,
+  queryValue,
   ReelResponseError,
   reelGet,
   type TitleQuery,
 } from "../title-route";
+import type { SourceSelection } from "../playback";
 import { PlaybackRoute } from "./playback-route";
 
 function positiveInteger(query: TitleQuery, key: string) {
   const value = numericQueryValue(query, key);
   return value != null && Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
+function playbackSelection(query: TitleQuery): SourceSelection {
+  const source = queryValue(query, "source");
+  if (!source) return { kind: "auto" };
+  if (source === "jellyfin") return { kind: "jellyfin" };
+  const discoveryId = queryValue(query, "discovery");
+  const candidateId = queryValue(query, "candidate");
+  const opaqueId = /^[A-Za-z0-9_-]{32}$/;
+  if (
+    source !== "aioStreams" ||
+    !discoveryId ||
+    !candidateId ||
+    !opaqueId.test(discoveryId) ||
+    !opaqueId.test(candidateId)
+  ) {
+    notFound();
+  }
+  return { kind: "aioStreams", discoveryId, candidateId };
 }
 
 export default async function PlayPage({
@@ -63,6 +84,7 @@ export default async function PlayPage({
       media={{ ...title, progress }}
       episode={episode}
       resumeSeconds={resumeSeconds}
+      sourceSelection={playbackSelection(query)}
       backHref={titleHref({ ...title, progress })}
     />
   );

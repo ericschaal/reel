@@ -4,8 +4,9 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Episode, TitleMedia } from "../../../../catalogue";
 import {
-  activateJellyfinPlayback,
+  activatePlayback,
   type ActivePlayback,
+  type SourceSelection,
   type PlaybackTrackSelection,
   PlayerView,
 } from "../playback";
@@ -14,11 +15,13 @@ export function PlaybackRoute({
   media,
   episode,
   resumeSeconds,
+  sourceSelection,
   backHref,
 }: {
   media: TitleMedia;
   episode?: Episode;
   resumeSeconds?: number;
+  sourceSelection: SourceSelection;
   backHref: string;
 }) {
   const router = useRouter();
@@ -27,6 +30,7 @@ export function PlaybackRoute({
     status: "loading",
     resumeSeconds,
     episode,
+    sourceSelection,
   });
 
   const activate = useCallback(
@@ -34,12 +38,13 @@ export function PlaybackRoute({
       activation.current?.abort();
       const controller = new AbortController();
       activation.current = controller;
-      void activateJellyfinPlayback(
+      void activatePlayback(
         media,
         episode,
         undefined,
         controller.signal,
         trackSelection,
+        sourceSelection,
       )
         .then((descriptor) => {
           if (activation.current === controller) {
@@ -48,6 +53,7 @@ export function PlaybackRoute({
               descriptor,
               resumeSeconds,
               episode,
+              sourceSelection,
               ...trackSelection,
             });
           }
@@ -59,14 +65,15 @@ export function PlaybackRoute({
             message:
               reason instanceof Error
                 ? reason.message
-                : "Jellyfin playback could not be started.",
+                : "Playback could not be started.",
             resumeSeconds,
             episode,
+            sourceSelection,
             ...trackSelection,
           });
         });
     },
-    [episode, media, resumeSeconds],
+    [episode, media, resumeSeconds, sourceSelection],
   );
 
   useEffect(() => {
@@ -85,12 +92,13 @@ export function PlaybackRoute({
     const controller = new AbortController();
     activation.current = controller;
     try {
-      return await activateJellyfinPlayback(
+      return await activatePlayback(
         media,
         episode,
         undefined,
         controller.signal,
         selection,
+        sourceSelection,
       );
     } finally {
       if (activation.current === controller) activation.current = null;
@@ -112,6 +120,7 @@ export function PlaybackRoute({
       status: "loading",
       resumeSeconds,
       episode,
+      sourceSelection,
       ...selection,
     });
     activate(selection);

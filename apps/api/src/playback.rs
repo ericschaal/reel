@@ -20,6 +20,7 @@ use thiserror::Error as ThisError;
 use tokio::sync::RwLock;
 
 use crate::{
+    aiostreams::{AioStreams, DirectStream, SearchOutcome, SearchTarget},
     jellyfin::{
         DeviceProfile, DirectPlayProfile, DlnaProfileType, Item, ItemType, ItemsQuery, Jellyfin,
         MediaSource, MediaStreamProtocol, PlaybackInfoRequest, SubtitleDeliveryMethod,
@@ -29,20 +30,37 @@ use crate::{
 };
 
 const SESSION_TTL: Duration = Duration::from_secs(6 * 60 * 60);
+const DISCOVERY_TTL: Duration = Duration::from_secs(15 * 60);
 const TICKS_PER_SECOND: i64 = 10_000_000;
 
 #[derive(Clone)]
 pub struct Playback {
     jellyfin: Jellyfin,
+    aiostreams: Option<AioStreams>,
     username: Arc<str>,
     user_id: Arc<RwLock<Option<Arc<str>>>>,
     sessions: Arc<RwLock<HashMap<String, PlaybackSession>>>,
+    discoveries: Arc<RwLock<HashMap<String, Discovery>>>,
 }
 
 #[derive(Clone)]
 struct PlaybackSession {
-    item_id: String,
+    source: SessionSource,
     source_url: Url,
+    expires_at: Instant,
+    resources: Arc<RwLock<HashMap<String, Url>>>,
+}
+
+#[derive(Clone)]
+enum SessionSource {
+    Jellyfin { item_id: String },
+    AioStreams { request_headers: HeaderMap },
+}
+
+#[derive(Clone)]
+struct Discovery {
+    target: PlaybackTarget,
+    candidates: Vec<(String, DirectStream)>,
     expires_at: Instant,
 }
 
@@ -51,24 +69,35 @@ impl Playback {
     pub fn new(jellyfin: Jellyfin, username: impl Into<String>) -> Self {
         Self {
             jellyfin,
+            aiostreams: None,
             username: Arc::from(username.into()),
             user_id: Arc::new(RwLock::new(None)),
             sessions: Arc::new(RwLock::new(HashMap::new())),
+            discoveries: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    #[must_use]
+    pub fn with_aiostreams(mut self, aiostreams: AioStreams) -> Self {
+        self.aiostreams = Some(aiostreams);
+        self
     }
 
     #[must_use]
     pub fn with_user_id(jellyfin: Jellyfin, user_id: impl Into<String>) -> Self {
         Self {
             jellyfin,
+            aiostreams: None,
             username: Arc::from(""),
             user_id: Arc::new(RwLock::new(Some(Arc::from(user_id.into())))),
             sessions: Arc::new(RwLock::new(HashMap::new())),
+            discoveries: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
     pub fn router(self) -> Router {
         Router::new()
+            .route("/v1/playback/sources", post(discover))
             .route("/v1/playback/activate", post(activate))
             .route("/v1/playback/sessions/{session_id}/media", get(media))
             .route(
@@ -79,6 +108,29 @@ impl Playback {
     }
 
     async fn activate(&self, request: ActivationRequest) -> Result<PlaybackDescriptor, Error> {
+        match &request.selection {
+            PlaybackSelection::Auto => match self.activate_jellyfin(&request).await {
+                Ok(descriptor) => Ok(descriptor),
+                Err(Error::NotLocal | Error::NoCompatibleSource) => {
+                    self.activate_first_aiostreams(&request.target).await
+                }
+                Err(error) => Err(error),
+            },
+            PlaybackSelection::Jellyfin => self.activate_jellyfin(&request).await,
+            PlaybackSelection::AioStreams {
+                discovery_id,
+                candidate_id,
+            } => {
+                self.activate_discovered_aiostreams(&request.target, discovery_id, candidate_id)
+                    .await
+            }
+        }
+    }
+
+    async fn activate_jellyfin(
+        &self,
+        request: &ActivationRequest,
+    ) -> Result<PlaybackDescriptor, Error> {
         let item = self.resolve_item(&request.target).await?;
         let user_id = self.user_id().await?;
         let start_time_ticks = request
@@ -136,9 +188,10 @@ impl Playback {
         self.sessions.write().await.insert(
             session_id.clone(),
             PlaybackSession {
-                item_id: item.id,
+                source: SessionSource::Jellyfin { item_id: item.id },
                 source_url,
                 expires_at: Instant::now() + SESSION_TTL,
+                resources: Arc::new(RwLock::new(HashMap::new())),
             },
         );
 
@@ -153,6 +206,183 @@ impl Playback {
             subtitle_tracks,
             selected_audio_index,
             selected_subtitle_index,
+        })
+    }
+
+    async fn discover(&self, request: DiscoveryRequest) -> Result<DiscoveryResponse, Error> {
+        let local = self.resolve_item(&request.target);
+        let remote = self.search_aiostreams(&request.target);
+        let (local, remote) = tokio::join!(local, remote);
+        let mut sources = Vec::new();
+        let mut issues = Vec::new();
+        match local {
+            Ok(_) => sources.push(PlaybackCandidate {
+                id: "jellyfin".into(),
+                source: PlaybackSource::Jellyfin,
+                label: "Local copy".into(),
+                description: Some("Jellyfin".into()),
+                preferred: true,
+                addon: None,
+                service: None,
+                cached: None,
+                resolution: None,
+                quality: None,
+                container: None,
+                size_bytes: None,
+                web_ready: true,
+            }),
+            Err(Error::NotLocal) => {}
+            Err(_) => issues.push(PlaybackIssue {
+                source: PlaybackSource::Jellyfin,
+                code: PlaybackIssueCode::UpstreamUnavailable,
+            }),
+        }
+
+        let mut stored_candidates = Vec::new();
+        match remote {
+            Ok(SearchOutcome {
+                streams,
+                upstream_error_count,
+            }) => {
+                if upstream_error_count > 0 {
+                    issues.push(PlaybackIssue {
+                        source: PlaybackSource::AioStreams,
+                        code: PlaybackIssueCode::PartialResults,
+                    });
+                }
+                for stream in streams {
+                    let id = random_session_id();
+                    sources.push(PlaybackCandidate {
+                        id: id.clone(),
+                        source: PlaybackSource::AioStreams,
+                        label: stream.label.clone(),
+                        description: stream.description.clone(),
+                        preferred: false,
+                        addon: stream.addon.clone(),
+                        service: stream.service.clone(),
+                        cached: stream.cached,
+                        resolution: stream.resolution.clone(),
+                        quality: stream.quality.clone(),
+                        container: stream.container.clone(),
+                        size_bytes: stream.size_bytes,
+                        web_ready: stream.web_ready,
+                    });
+                    stored_candidates.push((id, stream));
+                }
+            }
+            Err(_) => issues.push(PlaybackIssue {
+                source: PlaybackSource::AioStreams,
+                code: PlaybackIssueCode::UpstreamUnavailable,
+            }),
+        }
+
+        let discovery_id = random_session_id();
+        self.remove_expired_discoveries().await;
+        self.discoveries.write().await.insert(
+            discovery_id.clone(),
+            Discovery {
+                target: request.target,
+                candidates: stored_candidates,
+                expires_at: Instant::now() + DISCOVERY_TTL,
+            },
+        );
+        Ok(DiscoveryResponse {
+            discovery_id,
+            sources,
+            issues,
+        })
+    }
+
+    async fn search_aiostreams(&self, target: &PlaybackTarget) -> Result<SearchOutcome, Error> {
+        let aiostreams = self
+            .aiostreams
+            .as_ref()
+            .ok_or(Error::AioStreamsNotConfigured)?;
+        aiostreams
+            .search(target.aiostreams_target())
+            .await
+            .map_err(Into::into)
+    }
+
+    async fn activate_first_aiostreams(
+        &self,
+        target: &PlaybackTarget,
+    ) -> Result<PlaybackDescriptor, Error> {
+        let outcome = self.search_aiostreams(target).await?;
+        let stream = outcome
+            .streams
+            .into_iter()
+            .find(|stream| stream.web_ready)
+            .ok_or(Error::NoRemoteSources)?;
+        self.activate_aiostreams(stream).await
+    }
+
+    async fn activate_discovered_aiostreams(
+        &self,
+        target: &PlaybackTarget,
+        discovery_id: &str,
+        candidate_id: &str,
+    ) -> Result<PlaybackDescriptor, Error> {
+        let discovery = self
+            .discoveries
+            .read()
+            .await
+            .get(discovery_id)
+            .cloned()
+            .ok_or(Error::DiscoveryNotFound)?;
+        if discovery.expires_at <= Instant::now() {
+            self.discoveries.write().await.remove(discovery_id);
+            return Err(Error::DiscoveryNotFound);
+        }
+        if &discovery.target != target {
+            return Err(Error::CandidateNotFound);
+        }
+        let stream = discovery
+            .candidates
+            .into_iter()
+            .find_map(|(id, stream)| (id == candidate_id).then_some(stream))
+            .ok_or(Error::CandidateNotFound)?;
+        self.activate_aiostreams(stream).await
+    }
+
+    async fn activate_aiostreams(&self, stream: DirectStream) -> Result<PlaybackDescriptor, Error> {
+        if !stream.web_ready {
+            return Err(Error::NoCompatibleSource);
+        }
+        let delivery = if stream.url.path().to_ascii_lowercase().ends_with(".m3u8")
+            || stream.container.as_deref().is_some_and(|container| {
+                matches!(container.to_ascii_lowercase().as_str(), "hls" | "m3u8")
+            }) {
+            Delivery::Hls
+        } else {
+            Delivery::Direct
+        };
+        let session_id = random_session_id();
+        let duration_seconds = stream.duration_seconds;
+        let container = stream.container;
+        self.remove_expired_sessions().await;
+        self.sessions.write().await.insert(
+            session_id.clone(),
+            PlaybackSession {
+                source: SessionSource::AioStreams {
+                    request_headers: stream.request_headers,
+                },
+                source_url: stream.url,
+                expires_at: Instant::now() + SESSION_TTL,
+                resources: Arc::new(RwLock::new(HashMap::new())),
+            },
+        );
+        Ok(PlaybackDescriptor {
+            session_id: session_id.clone(),
+            source: PlaybackSource::AioStreams,
+            delivery,
+            media_url: format!("/v1/playback/sessions/{session_id}/media"),
+            container,
+            duration_seconds,
+            audio_tracks: Vec::new(),
+            subtitle_tracks: Vec::new(),
+            selected_audio_index: None,
+            selected_subtitle_index: None,
         })
     }
 
@@ -247,6 +477,14 @@ impl Playback {
             .retain(|_, session| session.expires_at > now);
     }
 
+    async fn remove_expired_discoveries(&self) {
+        let now = Instant::now();
+        self.discoveries
+            .write()
+            .await
+            .retain(|_, discovery| discovery.expires_at > now);
+    }
+
     async fn user_id(&self) -> Result<Arc<str>, Error> {
         if let Some(user_id) = self.user_id.read().await.clone() {
             return Ok(user_id);
@@ -276,13 +514,27 @@ async fn activate(
     playback.activate(request).await.map(Json)
 }
 
+async fn discover(
+    State(playback): State<Playback>,
+    Json(request): Json<DiscoveryRequest>,
+) -> Result<Json<DiscoveryResponse>, Error> {
+    playback.discover(request).await.map(Json)
+}
+
 async fn media(
     State(playback): State<Playback>,
     Path(session_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<Response, Error> {
     let session = playback.session(&session_id).await?;
-    proxy(&playback, &session_id, session.source_url.clone(), headers).await
+    proxy(
+        &playback,
+        &session_id,
+        &session,
+        session.source_url.clone(),
+        headers,
+    )
+    .await
 }
 
 async fn resource(
@@ -291,44 +543,66 @@ async fn resource(
     headers: HeaderMap,
 ) -> Result<Response, Error> {
     let session = playback.session(&session_id).await?;
-    let decoded = URL_SAFE_NO_PAD
-        .decode(resource)
-        .map_err(|_| Error::InvalidResource)?;
-    let url = Url::parse(std::str::from_utf8(&decoded).map_err(|_| Error::InvalidResource)?)
-        .map_err(|_| Error::InvalidResource)?;
-    if !playback.jellyfin.has_same_origin(&url) || !is_item_video_url(&url, &session.item_id) {
-        return Err(Error::InvalidResource);
-    }
-    proxy(&playback, &session_id, url, headers).await
+    let url = match &session.source {
+        SessionSource::Jellyfin { item_id } => {
+            let decoded = URL_SAFE_NO_PAD
+                .decode(resource)
+                .map_err(|_| Error::InvalidResource)?;
+            let url =
+                Url::parse(std::str::from_utf8(&decoded).map_err(|_| Error::InvalidResource)?)
+                    .map_err(|_| Error::InvalidResource)?;
+            if !playback.jellyfin.has_same_origin(&url) || !is_item_video_url(&url, item_id) {
+                return Err(Error::InvalidResource);
+            }
+            url
+        }
+        SessionSource::AioStreams { .. } => session
+            .resources
+            .read()
+            .await
+            .get(&resource)
+            .cloned()
+            .ok_or(Error::InvalidResource)?,
+    };
+    proxy(&playback, &session_id, &session, url, headers).await
 }
 
 async fn proxy(
     playback: &Playback,
     session_id: &str,
+    session: &PlaybackSession,
     url: Url,
     request_headers: HeaderMap,
 ) -> Result<Response, Error> {
     let range = request_headers
         .get(header::RANGE)
         .and_then(|value| value.to_str().ok());
-    let upstream = playback.jellyfin.media_response(url.clone(), range).await?;
+    let upstream = match &session.source {
+        SessionSource::Jellyfin { .. } => {
+            playback.jellyfin.media_response(url.clone(), range).await?
+        }
+        SessionSource::AioStreams { request_headers } => {
+            playback
+                .aiostreams
+                .as_ref()
+                .ok_or(Error::AioStreamsNotConfigured)?
+                .media_response(url.clone(), range, request_headers)
+                .await?
+        }
+    };
     let status = upstream.status();
     let upstream_headers = upstream.headers().clone();
-    let is_playlist = url.path().ends_with(".m3u8")
+    let upstream_url = upstream.url().clone();
+    let is_playlist = upstream_url.path().to_ascii_lowercase().ends_with(".m3u8")
         || upstream_headers
             .get(header::CONTENT_TYPE)
             .and_then(|value| value.to_str().ok())
             .is_some_and(|value| value.contains("mpegurl"));
 
     if is_playlist && status.is_success() {
-        let text = upstream
-            .text()
-            .await
-            .map_err(|source| crate::jellyfin::Error::Transport {
-                integration: crate::integration::Integration::Jellyfin,
-                source,
-            })?;
-        let rewritten = rewrite_playlist(&text, &url, session_id)?;
+        let text = upstream.text().await.map_err(Error::InvalidUpstreamBody)?;
+        let rewritten =
+            rewrite_playlist(playback, &text, &upstream_url, session_id, session).await?;
         return Response::builder()
             .status(status)
             .header(header::CONTENT_TYPE, "application/vnd.apple.mpegurl")
@@ -356,18 +630,27 @@ async fn proxy(
         .map_err(|_| Error::InvalidUpstreamResponse)
 }
 
-fn rewrite_playlist(text: &str, base_url: &Url, session_id: &str) -> Result<String, Error> {
+async fn rewrite_playlist(
+    playback: &Playback,
+    text: &str,
+    base_url: &Url,
+    session_id: &str,
+    session: &PlaybackSession,
+) -> Result<String, Error> {
     let mut output = String::with_capacity(text.len() + 256);
     for line in text.lines() {
         let rewritten = if line.starts_with('#') {
-            rewrite_uri_attributes(line, base_url, session_id)?
+            rewrite_uri_attributes(playback, line, base_url, session_id, session).await?
         } else if line.trim().is_empty() {
             String::new()
         } else {
-            proxy_resource_url(
+            register_resource_url(
+                playback,
                 base_url.join(line).map_err(|_| Error::InvalidResource)?,
                 session_id,
+                session,
             )
+            .await?
         };
         output.push_str(&rewritten);
         output.push('\n');
@@ -375,7 +658,13 @@ fn rewrite_playlist(text: &str, base_url: &Url, session_id: &str) -> Result<Stri
     Ok(output)
 }
 
-fn rewrite_uri_attributes(line: &str, base_url: &Url, session_id: &str) -> Result<String, Error> {
+async fn rewrite_uri_attributes(
+    playback: &Playback,
+    line: &str,
+    base_url: &Url,
+    session_id: &str,
+    session: &PlaybackSession,
+) -> Result<String, Error> {
     let mut output = line.to_owned();
     let mut search_from = 0;
     while let Some(relative_start) = output[search_from..].find("URI=\"") {
@@ -387,15 +676,50 @@ fn rewrite_uri_attributes(line: &str, base_url: &Url, session_id: &str) -> Resul
         let resolved = base_url
             .join(&output[value_start..value_end])
             .map_err(|_| Error::InvalidResource)?;
-        let replacement = proxy_resource_url(resolved, session_id);
+        let replacement = register_resource_url(playback, resolved, session_id, session).await?;
         output.replace_range(value_start..value_end, &replacement);
         search_from = value_start + replacement.len() + 1;
     }
     Ok(output)
 }
 
+async fn register_resource_url(
+    playback: &Playback,
+    mut url: Url,
+    session_id: &str,
+    session: &PlaybackSession,
+) -> Result<String, Error> {
+    match &session.source {
+        SessionSource::Jellyfin { item_id } => {
+            if !playback.jellyfin.has_same_origin(&url) || !is_item_video_url(&url, item_id) {
+                return Err(Error::InvalidResource);
+            }
+            url = without_jellyfin_credentials(url);
+            return Ok(proxy_resource_url(url, session_id));
+        }
+        SessionSource::AioStreams { .. } => {
+            if !matches!(url.scheme(), "http" | "https")
+                || url.host_str().is_none()
+                || !url.username().is_empty()
+                || url.password().is_some()
+            {
+                return Err(Error::InvalidResource);
+            }
+            url.set_fragment(None);
+        }
+    }
+    let resource_id = random_session_id();
+    session
+        .resources
+        .write()
+        .await
+        .insert(resource_id.clone(), url);
+    Ok(format!(
+        "/v1/playback/sessions/{session_id}/resources/{resource_id}"
+    ))
+}
+
 fn proxy_resource_url(url: Url, session_id: &str) -> String {
-    let url = without_jellyfin_credentials(url);
     let encoded = URL_SAFE_NO_PAD.encode(url.as_str());
     format!("/v1/playback/sessions/{session_id}/resources/{encoded}")
 }
@@ -577,13 +901,15 @@ fn random_session_id() -> String {
 struct ActivationRequest {
     target: PlaybackTarget,
     #[serde(default)]
+    selection: PlaybackSelection,
+    #[serde(default)]
     capabilities: PlayerCapabilities,
     start_position_seconds: Option<f64>,
     audio_stream_index: Option<i32>,
     subtitle_stream_index: Option<i32>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(
     tag = "kind",
     rename_all = "camelCase",
@@ -599,6 +925,47 @@ enum PlaybackTarget {
         season_number: SeasonNumber,
         episode_number: i32,
     },
+}
+
+impl PlaybackTarget {
+    fn aiostreams_target(&self) -> SearchTarget {
+        match self {
+            Self::Movie { tmdb_id } => SearchTarget::Movie {
+                tmdb_id: tmdb_id.get(),
+            },
+            Self::Episode {
+                series_tmdb_id,
+                season_number,
+                episode_number,
+                ..
+            } => SearchTarget::Episode {
+                series_tmdb_id: series_tmdb_id.get(),
+                season_number: season_number.get(),
+                episode_number: *episode_number,
+            },
+        }
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+enum PlaybackSelection {
+    #[default]
+    Auto,
+    Jellyfin,
+    AioStreams {
+        discovery_id: String,
+        candidate_id: String,
+    },
+}
+
+#[derive(Debug, Deserialize)]
+struct DiscoveryRequest {
+    target: PlaybackTarget,
 }
 
 #[derive(Debug, Deserialize)]
@@ -669,10 +1036,51 @@ struct PlaybackTrack {
     is_forced: bool,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Copy, Serialize)]
 #[serde(rename_all = "camelCase")]
 enum PlaybackSource {
+    AioStreams,
     Jellyfin,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DiscoveryResponse {
+    discovery_id: String,
+    sources: Vec<PlaybackCandidate>,
+    issues: Vec<PlaybackIssue>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PlaybackCandidate {
+    id: String,
+    source: PlaybackSource,
+    label: String,
+    description: Option<String>,
+    preferred: bool,
+    addon: Option<String>,
+    service: Option<String>,
+    cached: Option<bool>,
+    resolution: Option<String>,
+    quality: Option<String>,
+    container: Option<String>,
+    size_bytes: Option<u64>,
+    web_ready: bool,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PlaybackIssue {
+    source: PlaybackSource,
+    code: PlaybackIssueCode,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+enum PlaybackIssueCode {
+    PartialResults,
+    UpstreamUnavailable,
 }
 
 #[derive(Debug, Clone, Copy, Serialize)]
@@ -696,10 +1104,22 @@ pub enum Error {
     InvalidResource,
     #[error("the playback start position is invalid")]
     InvalidStartPosition,
+    #[error("the source discovery was not found or has expired")]
+    DiscoveryNotFound,
+    #[error("the selected playback candidate was not found")]
+    CandidateNotFound,
+    #[error("AIOStreams is not configured")]
+    AioStreamsNotConfigured,
+    #[error("AIOStreams returned no compatible direct sources")]
+    NoRemoteSources,
     #[error("Jellyfin returned an invalid playback response")]
     InvalidUpstreamResponse,
+    #[error("the upstream media body could not be read: {0}")]
+    InvalidUpstreamBody(reqwest::Error),
     #[error(transparent)]
     Jellyfin(#[from] crate::jellyfin::Error),
+    #[error(transparent)]
+    AioStreams(#[from] crate::aiostreams::Error),
 }
 
 impl IntoResponse for Error {
@@ -713,7 +1133,7 @@ impl IntoResponse for Error {
             Self::NoCompatibleSource => (
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "no_compatible_source",
-                "Jellyfin could not provide a compatible playback source",
+                "No compatible playback source is available",
             ),
             Self::SessionNotFound => (
                 StatusCode::NOT_FOUND,
@@ -729,6 +1149,31 @@ impl IntoResponse for Error {
                 StatusCode::BAD_REQUEST,
                 "invalid_playback_position",
                 "The playback start position must be a finite non-negative number",
+            ),
+            Self::DiscoveryNotFound => (
+                StatusCode::NOT_FOUND,
+                "source_discovery_not_found",
+                "The source list was not found or has expired",
+            ),
+            Self::CandidateNotFound => (
+                StatusCode::BAD_REQUEST,
+                "playback_candidate_not_found",
+                "The selected playback source is invalid",
+            ),
+            Self::AioStreamsNotConfigured => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "aiostreams_not_configured",
+                "Remote playback is not configured",
+            ),
+            Self::NoRemoteSources => (
+                StatusCode::NOT_FOUND,
+                "no_remote_sources",
+                "No compatible direct streams are available",
+            ),
+            Self::AioStreams(_) | Self::InvalidUpstreamBody(_) => (
+                StatusCode::BAD_GATEWAY,
+                "aiostreams_unavailable",
+                "Remote playback is temporarily unavailable",
             ),
             Self::UserNotFound | Self::InvalidUpstreamResponse | Self::Jellyfin(_) => (
                 StatusCode::BAD_GATEWAY,
@@ -748,24 +1193,38 @@ impl IntoResponse for Error {
 mod tests {
     use super::*;
 
-    #[test]
-    fn rewrites_playlist_resources_through_the_scoped_session() {
+    #[tokio::test]
+    async fn rewrites_jellyfin_playlist_resources_through_the_scoped_session() {
         let base = Url::parse("http://jellyfin/Videos/item/master.m3u8?x=1").unwrap();
         let playlist = "#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI=\"keys/key.bin\"\nmain.m3u8?ApiKey=secret&quality=high\n";
-        let rewritten = rewrite_playlist(playlist, &base, "session").unwrap();
+        let playback = Playback::with_user_id(
+            Jellyfin::new("http://jellyfin", "secret-api-key").unwrap(),
+            "user",
+        );
+        let session = PlaybackSession {
+            source: SessionSource::Jellyfin {
+                item_id: "item".into(),
+            },
+            source_url: base.clone(),
+            expires_at: Instant::now() + SESSION_TTL,
+            resources: Arc::new(RwLock::new(HashMap::new())),
+        };
+        let rewritten = rewrite_playlist(&playback, playlist, &base, "session", &session)
+            .await
+            .unwrap();
         assert!(rewritten.contains("/v1/playback/sessions/session/resources/"));
         assert!(!rewritten.contains("keys/key.bin"));
-        let encoded = rewritten
+        let resource_id = rewritten
             .lines()
             .find(|line| !line.starts_with('#'))
             .unwrap()
             .rsplit('/')
             .next()
             .unwrap();
-        let decoded = URL_SAFE_NO_PAD.decode(encoded).unwrap();
-        let decoded = std::str::from_utf8(&decoded).unwrap();
-        assert!(!decoded.to_ascii_lowercase().contains("apikey"));
-        assert!(decoded.contains("quality=high"));
+        let decoded = URL_SAFE_NO_PAD.decode(resource_id).unwrap();
+        let resource = std::str::from_utf8(&decoded).unwrap();
+        assert!(!resource.to_ascii_lowercase().contains("apikey"));
+        assert!(resource.contains("quality=high"));
     }
 
     #[test]

@@ -1,10 +1,15 @@
-use std::io;
+use std::{io, path::Path};
 
-use reel_api::{app, catalogue::Catalogue, jellyfin::Jellyfin, playback::Playback, seerr::Seerr};
+use reel_api::{
+    aiostreams::AioStreams, app, catalogue::Catalogue, jellyfin::Jellyfin, playback::Playback,
+    seerr::Seerr,
+};
 
 #[tokio::main]
 async fn main() -> Result<(), io::Error> {
-    dotenvy::dotenv().ok();
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    dotenvy::from_path(manifest_dir.join(".env.local")).ok();
+    dotenvy::from_path(manifest_dir.join(".env")).ok();
     tracing_subscriber::fmt::init();
 
     let jellyfin = Jellyfin::new(
@@ -12,7 +17,15 @@ async fn main() -> Result<(), io::Error> {
         required_env("JELLYFIN_API_KEY")?,
     )
     .map_err(io::Error::other)?;
-    let playback = Playback::new(jellyfin.clone(), required_env("JELLYFIN_USERNAME")?);
+    let playback = Playback::new(jellyfin.clone(), required_env("JELLYFIN_USERNAME")?)
+        .with_aiostreams(
+            AioStreams::new(
+                required_env("AIOSTREAMS_BASE_URL")?,
+                required_env("AIOSTREAMS_UUID")?,
+                required_env("AIOSTREAMS_PASSWORD")?,
+            )
+            .map_err(io::Error::other)?,
+        );
     let catalogue = Catalogue::new(
         Seerr::new(
             required_env("SEERR_BASE_URL")?,

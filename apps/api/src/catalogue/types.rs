@@ -247,6 +247,9 @@ impl CatalogueIssue {
     pub(super) fn upstream(integration: Integration, section_id: Option<&str>) -> Self {
         Self {
             source: match integration {
+                Integration::AioStreams => {
+                    unreachable!("AIOStreams does not produce catalogue issues")
+                }
                 Integration::Jellyfin => CatalogueSource::Jellyfin,
                 Integration::Seerr => CatalogueSource::Seerr,
             },

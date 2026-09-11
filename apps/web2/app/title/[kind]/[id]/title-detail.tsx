@@ -25,8 +25,12 @@ import { NextUp, SeriesHierarchy } from "./episodes";
 import {
   DownloadIcon,
   DownloadedStatus,
-  PlaybackControl,
   PlaybackHint,
+  playbackSourcesQuery,
+  SourcePickerDialog,
+  type PlaybackCandidate,
+  type SourceSelection,
+  WatchNowControl,
 } from "./playback";
 
 export function TitleDetail({
@@ -69,10 +73,16 @@ export function TitleDetail({
       null,
   );
   const [episodeDialog, setEpisodeDialog] = useState<Episode | null>(null);
-  const localCopy =
-    media.kind === "series"
-      ? nextEpisode?.availability === "local"
-      : media.availability === "local";
+  const discoveryEpisode = episodeDialog ?? nextEpisode ?? undefined;
+  const canDiscover = media.kind === "movie" || discoveryEpisode != null;
+  const sourceDiscoveryQuery = useQuery({
+    ...playbackSourcesQuery(media, discoveryEpisode),
+    enabled: canDiscover,
+  });
+  const [sourcePicker, setSourcePicker] = useState<{
+    resumeSeconds?: number;
+    episode?: Episode;
+  } | null>(null);
   const [downloadScope, setDownloadScope] = useState<DownloadScope | null>(
     null,
   );
@@ -83,11 +93,46 @@ export function TitleDetail({
     setSeasonNumber(nextSeasonNumber);
   }
 
-  function playLocal(
+  function play(
+    resumeSeconds?: number,
+    episode = nextEpisode ?? undefined,
+    sourceSelection: SourceSelection = { kind: "auto" },
+  ) {
+    const href = new URL(
+      playbackHref(media, episode, resumeSeconds),
+      "http://reel.local",
+    );
+    if (sourceSelection.kind === "jellyfin") {
+      href.searchParams.set("source", "jellyfin");
+    } else if (sourceSelection.kind === "aioStreams") {
+      href.searchParams.set("source", "aioStreams");
+      href.searchParams.set("discovery", sourceSelection.discoveryId);
+      href.searchParams.set("candidate", sourceSelection.candidateId);
+    }
+    router.push(`${href.pathname}${href.search}`, { scroll: false });
+  }
+
+  function openSources(
     resumeSeconds?: number,
     episode = nextEpisode ?? undefined,
   ) {
-    router.push(playbackHref(media, episode, resumeSeconds), { scroll: false });
+    setSourcePicker({ resumeSeconds, episode });
+  }
+
+  function chooseSource(source: PlaybackCandidate) {
+    const discovery = sourceDiscoveryQuery.data;
+    if (!sourcePicker || !discovery) return;
+    const selection: SourceSelection =
+      source.source === "jellyfin"
+        ? { kind: "jellyfin" }
+        : {
+            kind: "aioStreams",
+            discoveryId: discovery.discoveryId,
+            candidateId: source.id,
+          };
+    const { resumeSeconds, episode } = sourcePicker;
+    setSourcePicker(null);
+    play(resumeSeconds, episode, selection);
   }
 
   function openDownload() {
@@ -111,6 +156,20 @@ export function TitleDetail({
     setEpisodeDialog(null);
   }
 
+  const sourcePickerState = sourcePicker
+    ? sourceDiscoveryQuery.data
+      ? { status: "ready" as const, discovery: sourceDiscoveryQuery.data }
+      : sourceDiscoveryQuery.isError
+        ? {
+            status: "error" as const,
+            message:
+              sourceDiscoveryQuery.error instanceof Error
+                ? sourceDiscoveryQuery.error.message
+                : "Playback sources could not be loaded.",
+          }
+        : { status: "loading" as const }
+    : null;
+
   if (downloadScope) {
     return (
       <DownloadView
@@ -126,25 +185,37 @@ export function TitleDetail({
 
   if (episodeDialog) {
     return (
-      <EpisodeDetailView
-        media={media}
-        episode={episodeDialog}
-        series={series}
-        season={season}
-        seasonNumber={seasonNumber}
-        seasonLoading={seasonLoading}
-        seasonError={seasonError}
-        progress={progressForSelection(media.progress, episodeDialog)}
-        onBack={closeEpisode}
-        onSelectSeason={selectSeason}
-        onOpenEpisode={openEpisode}
-        onPlayLocal={(resumeSeconds) =>
-          playLocal(resumeSeconds, episodeDialog)
-        }
-        onDownload={() =>
-          setDownloadScope({ kind: "episode", episode: episodeDialog })
-        }
-      />
+      <>
+        <EpisodeDetailView
+          media={media}
+          episode={episodeDialog}
+          series={series}
+          season={season}
+          seasonNumber={seasonNumber}
+          seasonLoading={seasonLoading}
+          seasonError={seasonError}
+          progress={progressForSelection(media.progress, episodeDialog)}
+          onBack={closeEpisode}
+          onSelectSeason={selectSeason}
+          onOpenEpisode={openEpisode}
+          onPlay={(resumeSeconds) => play(resumeSeconds, episodeDialog)}
+          onOpenSources={(resumeSeconds) =>
+            openSources(resumeSeconds, episodeDialog)
+          }
+          sourcesOpen={sourcePicker != null}
+          onDownload={() =>
+            setDownloadScope({ kind: "episode", episode: episodeDialog })
+          }
+        />
+        {sourcePickerState ? (
+          <SourcePickerDialog
+            state={sourcePickerState}
+            onClose={() => setSourcePicker(null)}
+            onRetry={() => void sourceDiscoveryQuery.refetch()}
+            onChoose={chooseSource}
+          />
+        ) : null}
+      </>
     );
   }
 
@@ -212,10 +283,12 @@ export function TitleDetail({
               <NextUp episode={nextEpisode} progress={progress} />
             ) : null}
             <div className="mt-5 flex flex-wrap items-stretch gap-3">
-              <PlaybackControl
+              <WatchNowControl
                 progress={progress}
-                disabled={!localCopy}
-                onPlay={(resumeSeconds) => playLocal(resumeSeconds)}
+                onPlay={(resumeSeconds) => play(resumeSeconds)}
+                onOpenSources={(resumeSeconds) => openSources(resumeSeconds)}
+                sourcesOpen={sourcePicker != null}
+                disabled={!canDiscover}
               />
               {media.kind === "movie" && media.availability === "local" ? (
                 <DownloadedStatus />
@@ -247,6 +320,14 @@ export function TitleDetail({
           />
         ) : null}
       </main>
+      {sourcePickerState ? (
+        <SourcePickerDialog
+          state={sourcePickerState}
+          onClose={() => setSourcePicker(null)}
+          onRetry={() => void sourceDiscoveryQuery.refetch()}
+          onChoose={chooseSource}
+        />
+      ) : null}
     </div>
   );
 }

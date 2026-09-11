@@ -24,13 +24,12 @@ translated into Reel's domain language at the point of use. Separate workspace
 crates are introduced only after actual reuse, isolation, or build constraints
 justify a seam.
 
-The backend returns normalized playback descriptors to clients. For the
-private-network MVP, the native TV and React web clients are trusted and a
-descriptor may include upstream credential material required by the selected
-source. This keeps media bytes flowing directly from Jellyfin or the configured
-Stremio streaming server. Unrelated integration credentials remain in the
-backend. External access and untrusted clients are unsupported until this
-assumption is revisited.
+The backend returns normalized playback descriptors with scoped Reel media URLs
+to clients. Jellyfin credentials, AIOStreams credentials, direct upstream URLs,
+and source-specific request headers remain in backend playback sessions. Reel
+proxies media when this isolation or HLS rewriting requires it. External access
+and untrusted clients remain unsupported until the broader authentication model
+is revisited.
 
 ## State ownership
 

@@ -8,8 +8,16 @@ export function useRouter() {
   };
 }
 
-export async function activateJellyfinPlayback() {
+export async function activatePlayback(
+  _media,
+  _episode,
+  _resumeSeconds,
+  _signal,
+  _trackSelection,
+  sourceSelection,
+) {
   globalThis.__activationCalls += 1;
+  globalThis.__lastSourceSelection = sourceSelection;
   return {
     sessionId: `session-${globalThis.__activationCalls}`,
     source: "jellyfin",

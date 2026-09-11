@@ -61,13 +61,14 @@ const media = {
   availability: "local",
 };
 
-async function mountPlayer(container) {
+async function mountPlayer(container, sourceSelection = { kind: "auto" }) {
   const root = createRoot(container);
   await act(async () =>
     root.render(
       createElement(PlaybackRoute, {
         media,
         resumeSeconds: 12,
+        sourceSelection,
         backHref: "/title/movie/tmdb%3Amovie%3A1",
       }),
     ),
@@ -85,5 +86,18 @@ test("a fresh player-route mount reactivates playback after reload", async () =>
   root = await mountPlayer(container);
 
   assert.equal(globalThis.__activationCalls, 2);
+  await act(async () => root.unmount());
+});
+
+test("the URL-backed player route activates an explicit opaque source", async () => {
+  const container = document.getElementById("root");
+  const sourceSelection = {
+    kind: "aioStreams",
+    discoveryId: "a".repeat(32),
+    candidateId: "b".repeat(32),
+  };
+  const root = await mountPlayer(container, sourceSelection);
+
+  assert.deepEqual(globalThis.__lastSourceSelection, sourceSelection);
   await act(async () => root.unmount());
 });

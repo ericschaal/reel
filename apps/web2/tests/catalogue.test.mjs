@@ -189,7 +189,7 @@ test("download actions become downloaded status for local media", async () => {
   assert.match(episodeDetail, /<DownloadedStatus \/>/);
 });
 
-test("local movies and exact episodes activate Jellyfin playback", async () => {
+test("movies and exact episodes activate normalized playback through the existing player route", async () => {
   const [playback, playbackRoute, videoPlayer, titleDetail, episodeDetail, nextConfig] = await Promise.all([
     readFile(
       new URL("../app/title/[kind]/[id]/playback.tsx", import.meta.url),
@@ -215,16 +215,44 @@ test("local movies and exact episodes activate Jellyfin playback", async () => {
   ]);
 
   assert.match(playback, /fetch\("\/v1\/playback\/activate"/);
+  assert.match(playback, /fetch\("\/v1\/playback\/sources"/);
   assert.match(playback, /seriesTmdbId: media\.tmdbId/);
   assert.match(playback, /episodeNumber: episode\.episodeNumber/);
-  assert.match(playbackRoute, /activateJellyfinPlayback/);
-  assert.match(titleDetail, /router\.push\(playbackHref/);
+  assert.match(playbackRoute, /activatePlayback/);
+  assert.match(titleDetail, /playbackHref\(media, episode, resumeSeconds\)/);
   assert.match(videoPlayer, /void import\("hls\.js"\)/);
   assert.match(videoPlayer, /<video/);
-  assert.doesNotMatch(`${playback}${videoPlayer}`, /exampleSources|Stremio/);
-  assert.match(titleDetail, /disabled=\{!localCopy\}/);
-  assert.match(episodeDetail, /disabled=\{!localCopy\}/);
+  assert.equal(videoPlayer.match(/<video/g)?.length, 1);
+  assert.doesNotMatch(playback, /<video/);
+  assert.doesNotMatch(`${playback}${videoPlayer}`, /exampleSources/);
+  assert.doesNotMatch(titleDetail, /disabled=\{!localCopy\}/);
+  assert.doesNotMatch(episodeDetail, /disabled=\{!localCopy\}/);
+  assert.match(titleDetail, /<WatchNowControl/);
+  assert.match(episodeDetail, /<WatchNowControl/);
+  assert.match(playback, /role="group"/);
+  assert.match(playback, /aria-label="Choose another playback source"/);
   assert.match(nextConfig, /source: "\/v1\/playback\/:path\*"/);
+});
+
+test("source discovery starts on detail open and reuses the query cache", async () => {
+  const [playback, titleDetail] = await Promise.all([
+    readFile(
+      new URL("../app/title/[kind]/[id]/playback.tsx", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../app/title/[kind]/[id]/title-detail.tsx", import.meta.url),
+      "utf8",
+    ),
+  ]);
+
+  assert.match(playback, /export function playbackSourcesQuery/);
+  assert.match(playback, /queryFn: \(\{ signal \}\) => discoverPlaybackSources/);
+  assert.match(playback, /staleTime: 5 \* 60 \* 1000/);
+  assert.match(titleDetail, /\.\.\.playbackSourcesQuery\(media, discoveryEpisode\)/);
+  assert.match(titleDetail, /enabled: canDiscover/);
+  assert.match(titleDetail, /const discoveryEpisode = episodeDialog \?\? nextEpisode/);
+  assert.match(titleDetail, /const discovery = sourceDiscoveryQuery\.data/);
 });
 
 test("custom player exposes complete playback and track controls", async () => {
@@ -266,7 +294,7 @@ test("track changes keep the mounted player and swap its descriptor in place", a
   ]);
 
   assert.match(playbackRoute, /async function selectPlaybackTracks/);
-  assert.match(playbackRoute, /return await activateJellyfinPlayback/);
+  assert.match(playbackRoute, /return await activatePlayback/);
   const trackActivation = playbackRoute.slice(
     playbackRoute.indexOf("async function selectPlaybackTracks"),
     playbackRoute.indexOf("function closePlayback"),

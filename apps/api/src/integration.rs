@@ -11,6 +11,7 @@ const MAX_ERROR_BODY_LENGTH: usize = 8 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Integration {
+    AioStreams,
     Jellyfin,
     Seerr,
 }
@@ -18,6 +19,7 @@ pub enum Integration {
 impl fmt::Display for Integration {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::AioStreams => formatter.write_str("AIOStreams"),
             Self::Jellyfin => formatter.write_str("Jellyfin"),
             Self::Seerr => formatter.write_str("Seerr"),
         }
