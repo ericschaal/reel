@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
+import { motion, MotionConfig } from "motion/react";
 import { startTransition, useOptimistic } from "react";
 import {
   type CatalogueManifest,
@@ -41,44 +42,67 @@ export function CatalogueBrowser({ surface }: { surface: Surface }) {
     <AmbientBackdrop>
       <div className="min-h-dvh bg-[radial-gradient(ellipse_at_40%_0%,#23333680_0%,transparent_45%)]">
         <Header>
-          <nav
-            data-keyboard-menu="true"
-            data-keyboard-horizontal-group="true"
-            className={`flex ${catalogueNavGroupClass}`}
-            aria-label="Catalogue"
+          <MotionConfig
+            reducedMotion="user"
+            transition={{
+              type: "spring",
+              stiffness: 500,
+              damping: 38,
+              mass: 0.55,
+            }}
           >
-            {surfaces.map((item) => {
-              const href =
-                item.id === "discover" ? "/" : `/?surface=${item.id}`;
-              return (
-                <Link
-                  key={item.id}
-                  href={href}
-                  aria-current={surface === item.id ? "page" : undefined}
-                  data-visual-current={
-                    visualSurface === item.id ? "true" : undefined
-                  }
-                  tabIndex={surface === item.id ? 0 : -1}
-                  onFocus={(event) => {
-                    const direction =
-                      event.currentTarget.dataset.keyboardFocusDirection;
-                    if (
-                      (direction === "left" || direction === "right") &&
-                      item.id !== surface
-                    ) {
+            <nav
+              data-keyboard-menu="true"
+              data-keyboard-horizontal-group="true"
+              className={`flex ${catalogueNavGroupClass}`}
+              aria-label="Catalogue"
+            >
+              {surfaces.map((item) => {
+                const href =
+                  item.id === "discover" ? "/" : `/?surface=${item.id}`;
+                const isVisuallyCurrent = visualSurface === item.id;
+                return (
+                  <Link
+                    key={item.id}
+                    href={href}
+                    aria-current={surface === item.id ? "page" : undefined}
+                    tabIndex={surface === item.id ? 0 : -1}
+                    onFocus={(event) => {
+                      const direction =
+                        event.currentTarget.dataset.keyboardFocusDirection;
+                      if (
+                        (direction === "left" || direction === "right") &&
+                        item.id !== surface
+                      ) {
+                        startTransition(() => {
+                          setVisualSurface(item.id);
+                          router.replace(href, { scroll: false });
+                        });
+                      }
+                    }}
+                    onNavigate={(event) => {
+                      event.preventDefault();
+                      if (item.id === visualSurface) return;
+
                       startTransition(() => {
                         setVisualSurface(item.id);
-                        router.replace(href, { scroll: false });
+                        router.push(href, { scroll: false });
                       });
-                    }
-                  }}
-                  className={`inline-flex items-center ${catalogueNavItemClass}`}
-                >
-                  {item.label}
-                </Link>
-              );
-            })}
-          </nav>
+                    }}
+                    className={`inline-flex items-center ${catalogueNavItemClass} ${isVisuallyCurrent ? "text-white" : "text-white/55"}`}
+                  >
+                    {item.label}
+                    {visualSurface === item.id ? (
+                      <motion.span
+                        layoutId="catalogue-active-indicator"
+                        className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 rounded-full bg-nav-accent shadow-[0_0_12px_rgb(255_209_102_/_0.38)]"
+                      />
+                    ) : null}
+                  </Link>
+                );
+              })}
+            </nav>
+          </MotionConfig>
         </Header>
         <main id="main-content" className="mx-auto max-w-[1600px] pb-16 sm:pb-24">
         <section className={`pt-12 pb-10 sm:pt-16 sm:pb-14 ${pageGutter}`}>
