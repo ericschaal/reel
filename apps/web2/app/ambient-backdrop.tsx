@@ -8,12 +8,18 @@ import {
   type ReactNode,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
+import {
+  createDebouncedPublisher,
+  type DebouncedPublisher,
+} from "./debounced-publisher";
 
 const LIGHT_OVERSCAN = 240;
+const AMBIENT_SETTLE_DELAY_MS = 120;
 
 type BackdropLayer = {
   fromX: number;
@@ -29,6 +35,10 @@ type AmbientBackdropContextValue = {
   show: (src: string, origin: { x: number; y: number }) => void;
 };
 
+type BackdropUpdate =
+  | { type: "clear"; src: string }
+  | { type: "show"; src: string; origin: { x: number; y: number } };
+
 const AmbientBackdropContext = createContext<AmbientBackdropContextValue>({
   clear: () => undefined,
   show: () => undefined,
@@ -37,27 +47,37 @@ const AmbientBackdropContext = createContext<AmbientBackdropContextValue>({
 export function AmbientBackdrop({ children }: { children: ReactNode }) {
   const [backdrop, setBackdrop] = useState<BackdropLayer | null>(null);
   const lastOrigin = useRef<{ x: number; y: number } | null>(null);
+  const scheduler = useRef<DebouncedPublisher<BackdropUpdate> | null>(null);
 
-  const show = useCallback((src: string, origin: { x: number; y: number }) => {
+  const publishUpdate = useCallback((update: BackdropUpdate) => {
+    if (update.type === "clear") {
+      setBackdrop((current) =>
+        current?.src === update.src ? null : current,
+      );
+      return;
+    }
+
     const previousOrigin = lastOrigin.current;
-    lastOrigin.current = origin;
+    lastOrigin.current = update.origin;
     setBackdrop((current) => {
       if (
-        current?.src === src &&
-        Math.abs(current.x - origin.x) < 1 &&
-        Math.abs(current.y - origin.y) < 1
+        current?.src === update.src &&
+        Math.abs(current.x - update.origin.x) < 1 &&
+        Math.abs(current.y - update.origin.y) < 1
       )
         return current;
 
       return {
-        src,
-        ...origin,
+        src: update.src,
+        ...update.origin,
         fromX: clampTravel(
-          (current?.x ?? previousOrigin?.x ?? origin.x) - origin.x,
+          (current?.x ?? previousOrigin?.x ?? update.origin.x) -
+            update.origin.x,
           240,
         ),
         fromY: clampTravel(
-          (current?.y ?? previousOrigin?.y ?? origin.y) - origin.y,
+          (current?.y ?? previousOrigin?.y ?? update.origin.y) -
+            update.origin.y,
           140,
         ),
         revision: (current?.revision ?? 0) + 1,
@@ -65,11 +85,28 @@ export function AmbientBackdrop({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const clear = useCallback((src: string) => {
-    setBackdrop((current) =>
-      current?.src === src ? null : current,
+  useEffect(() => {
+    const activeScheduler = createDebouncedPublisher(
+      AMBIENT_SETTLE_DELAY_MS,
+      publishUpdate,
     );
-  }, []);
+    scheduler.current = activeScheduler;
+    return () => {
+      activeScheduler.dispose();
+      scheduler.current = null;
+    };
+  }, [publishUpdate]);
+
+  const show = useCallback(
+    (src: string, origin: { x: number; y: number }) => {
+      scheduler.current?.schedule({ type: "show", src, origin });
+    },
+    [],
+  );
+  const clear = useCallback(
+    (src: string) => scheduler.current?.schedule({ type: "clear", src }),
+    [],
+  );
   const contextValue = useMemo(() => ({ clear, show }), [clear, show]);
 
   return (

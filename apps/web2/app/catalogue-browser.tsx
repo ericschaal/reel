@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
+import { startTransition, useOptimistic } from "react";
 import {
   type CatalogueManifest,
   type Surface,
@@ -30,6 +32,8 @@ const rowClass = `grid grid-flow-col gap-4 overflow-x-auto overscroll-x-contain 
 type ManifestRail = CatalogueManifest["rails"][number];
 
 export function CatalogueBrowser({ surface }: { surface: Surface }) {
+  const router = useRouter();
+  const [visualSurface, setVisualSurface] = useOptimistic(surface);
   const manifestQuery = useQuery(catalogueManifestQuery(surface));
   const manifest = manifestQuery.data;
 
@@ -38,19 +42,42 @@ export function CatalogueBrowser({ surface }: { surface: Surface }) {
       <div className="min-h-dvh bg-[radial-gradient(ellipse_at_40%_0%,#23333680_0%,transparent_45%)]">
         <Header>
           <nav
-            className={`flex rounded-full ${catalogueNavGroupClass}`}
+            data-keyboard-menu="true"
+            data-keyboard-horizontal-group="true"
+            className={`flex ${catalogueNavGroupClass}`}
             aria-label="Catalogue"
           >
-            {surfaces.map((item) => (
-              <Link
-                key={item.id}
-                href={item.id === "discover" ? "/" : `/?surface=${item.id}`}
-                aria-current={surface === item.id ? "page" : undefined}
-                className={`inline-flex min-h-11 items-center border-r border-white/10 px-3 text-sm last:border-r-0 sm:px-5 ${catalogueNavItemClass} ${surface === item.id ? "bg-accent/12 font-semibold text-accent shadow-[inset_0_0_20px_#f4bc5212]" : "text-muted hover:text-ink"}`}
-              >
-                {item.label}
-              </Link>
-            ))}
+            {surfaces.map((item) => {
+              const href =
+                item.id === "discover" ? "/" : `/?surface=${item.id}`;
+              return (
+                <Link
+                  key={item.id}
+                  href={href}
+                  aria-current={surface === item.id ? "page" : undefined}
+                  data-visual-current={
+                    visualSurface === item.id ? "true" : undefined
+                  }
+                  tabIndex={surface === item.id ? 0 : -1}
+                  onFocus={(event) => {
+                    const direction =
+                      event.currentTarget.dataset.keyboardFocusDirection;
+                    if (
+                      (direction === "left" || direction === "right") &&
+                      item.id !== surface
+                    ) {
+                      startTransition(() => {
+                        setVisualSurface(item.id);
+                        router.replace(href, { scroll: false });
+                      });
+                    }
+                  }}
+                  className={`inline-flex items-center ${catalogueNavItemClass}`}
+                >
+                  {item.label}
+                </Link>
+              );
+            })}
           </nav>
         </Header>
         <main id="main-content" className="mx-auto max-w-[1600px] pb-16 sm:pb-24">
@@ -157,6 +184,7 @@ function CatalogueRail({
         ) : null}
       </div>
       <div
+        data-keyboard-rail="true"
         className={
           rail.layout === "backdrop"
             ? `${rowClass} auto-cols-[82%] sm:auto-cols-[340px] lg:auto-cols-[420px]`

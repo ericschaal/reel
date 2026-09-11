@@ -1,13 +1,15 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { useRef, useState } from "react";
-import type {
-  Episode,
-  TitleMedia,
-  MovieDetails,
-  PlaybackProgress,
-  SeriesDetails,
+import { useRouter } from "next/navigation";
+import { useState } from "react";
+import {
+  playbackHref,
+  type Episode,
+  type TitleMedia,
+  type MovieDetails,
+  type PlaybackProgress,
+  type SeriesDetails,
 } from "../../../catalogue";
 import { Artwork, RatingBadge } from "../../../media-card";
 import { seasonQuery } from "../../../reel-query";
@@ -21,13 +23,10 @@ import { DownloadView, type DownloadScope } from "./download-view";
 import { EpisodeDetailView } from "./episode-detail-view";
 import { NextUp, SeriesHierarchy } from "./episodes";
 import {
-  activateJellyfinPlayback,
-  type ActivePlayback,
   DownloadIcon,
   DownloadedStatus,
   PlaybackControl,
   PlaybackHint,
-  PlayerView,
 } from "./playback";
 
 export function TitleDetail({
@@ -37,6 +36,7 @@ export function TitleDetail({
   title: MovieDetails | SeriesDetails;
   progress: PlaybackProgress | null;
 }) {
+  const router = useRouter();
   const media: TitleMedia = { ...title, progress: initialProgress };
   const series = title.kind === "series" ? title : null;
   const initialSeason = series?.initialSeason ?? null;
@@ -73,9 +73,6 @@ export function TitleDetail({
     media.kind === "series"
       ? nextEpisode?.availability === "local"
       : media.availability === "local";
-  const [activePlayback, setActivePlayback] =
-    useState<ActivePlayback | null>(null);
-  const activation = useRef<AbortController | null>(null);
   const [downloadScope, setDownloadScope] = useState<DownloadScope | null>(
     null,
   );
@@ -86,49 +83,11 @@ export function TitleDetail({
     setSeasonNumber(nextSeasonNumber);
   }
 
-  function playLocal(resumeSeconds?: number, episode = nextEpisode ?? undefined) {
-    activation.current?.abort();
-    const controller = new AbortController();
-    activation.current = controller;
-    setActivePlayback({
-      status: "loading",
-      resumeSeconds,
-      episode,
-    });
-    void activateJellyfinPlayback(
-      media,
-      episode,
-      resumeSeconds,
-      controller.signal,
-    )
-      .then((descriptor) => {
-        if (activation.current === controller) {
-          setActivePlayback({
-            status: "ready",
-            descriptor,
-            resumeSeconds,
-            episode,
-          });
-        }
-      })
-      .catch((reason: unknown) => {
-        if (controller.signal.aborted || activation.current !== controller) return;
-        setActivePlayback({
-          status: "error",
-          message:
-            reason instanceof Error
-              ? reason.message
-              : "Jellyfin playback could not be started.",
-          resumeSeconds,
-          episode,
-        });
-      });
-  }
-
-  function closePlayback() {
-    activation.current?.abort();
-    activation.current = null;
-    setActivePlayback(null);
+  function playLocal(
+    resumeSeconds?: number,
+    episode = nextEpisode ?? undefined,
+  ) {
+    router.push(playbackHref(media, episode, resumeSeconds), { scroll: false });
   }
 
   function openDownload() {
@@ -150,19 +109,6 @@ export function TitleDetail({
 
   function closeEpisode() {
     setEpisodeDialog(null);
-  }
-
-  if (activePlayback) {
-    return (
-      <PlayerView
-        media={media}
-        playback={activePlayback}
-        onBack={closePlayback}
-        onRetry={() =>
-          playLocal(activePlayback.resumeSeconds, activePlayback.episode)
-        }
-      />
-    );
   }
 
   if (downloadScope) {

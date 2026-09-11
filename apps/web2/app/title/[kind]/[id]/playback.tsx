@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import type { Episode, TitleMedia, PlaybackProgress } from "../../../catalogue";
 import { Eyebrow, NavigationHeader, primaryButtonClass } from "../../../ui";
+import { ReelVideoPlayer } from "./video-player";
 
 export type PlaybackDescriptor = {
   sessionId: string;
@@ -9,9 +10,30 @@ export type PlaybackDescriptor = {
   mediaUrl: string;
   container: string | null;
   durationSeconds: number | null;
+  audioTracks: PlaybackTrack[];
+  subtitleTracks: PlaybackTrack[];
+  selectedAudioIndex: number | null;
+  selectedSubtitleIndex: number | null;
 };
 
-type PlaybackSelection = { resumeSeconds?: number; episode?: Episode };
+export type PlaybackTrack = {
+  index: number;
+  label: string;
+  language: string | null;
+  codec: string | null;
+  isDefault: boolean;
+  isForced: boolean;
+};
+
+export type PlaybackTrackSelection = {
+  audioStreamIndex?: number;
+  subtitleStreamIndex?: number;
+};
+
+type PlaybackSelection = PlaybackTrackSelection & {
+  resumeSeconds?: number;
+  episode?: Episode;
+};
 
 export type ActivePlayback = PlaybackSelection &
   (
@@ -25,6 +47,7 @@ export async function activateJellyfinPlayback(
   episode?: Episode,
   resumeSeconds?: number,
   signal?: AbortSignal,
+  trackSelection: PlaybackTrackSelection = {},
 ) {
   const video = document.createElement("video");
   const supportsMp4 = Boolean(
@@ -48,6 +71,7 @@ export async function activateJellyfinPlayback(
     body: JSON.stringify({
       target,
       startPositionSeconds: resumeSeconds,
+      ...trackSelection,
       capabilities: {
         containers: [supportsMp4 ? "mp4" : null, supportsWebm ? "webm" : null].filter(
           (value): value is string => value != null,
@@ -82,147 +106,67 @@ export function PlayerView({
   playback,
   onBack,
   onRetry,
+  onSelectTracks,
 }: {
   media: TitleMedia;
   playback: ActivePlayback;
   onBack: () => void;
   onRetry: () => void;
+  onSelectTracks: (
+    resumeSeconds: number,
+    selection: PlaybackTrackSelection,
+  ) => Promise<PlaybackDescriptor>;
 }) {
+  if (playback.status === "ready") {
+    return (
+      <ReelVideoPlayer
+        media={media}
+        playback={playback}
+        onBack={onBack}
+        onSelectTracks={onSelectTracks}
+      />
+    );
+  }
+
   return (
     <FullScreenShell onBack={onBack} backLabel="Back">
       <main className="grid min-h-[calc(100dvh-5rem)] place-items-center bg-black px-5 py-10">
-        {playback.status === "ready" ? (
-          <JellyfinVideo playback={playback} />
-        ) : (
-          <div className="max-w-xl text-center" role="status">
-            <div className="mt-8">
-              <Eyebrow>
-                {playback.status === "loading"
-                  ? "Opening Jellyfin"
-                  : "Playback unavailable"}
-              </Eyebrow>
-            </div>
-            <h1 className="mt-[-0.5rem] text-3xl font-semibold tracking-tight sm:text-5xl">
-              {playback.episode ? playback.episode.title : media.title}
-            </h1>
-            {playback.episode ? (
-              <p className="mt-3 text-sm text-muted">
-                {media.title} · S{playback.episode.seasonNumber} E
-                {playback.episode.episodeNumber}
-              </p>
-            ) : null}
-            {playback.status === "loading" ? (
-              <p className="mt-6 text-sm text-muted">
-                Negotiating the best compatible local stream…
-              </p>
-            ) : (
-              <>
-                <p className="mt-6 text-sm text-amber-200">{playback.message}</p>
-                <button
-                  type="button"
-                  className={`${primaryButtonClass} mt-7`}
-                  onClick={onRetry}
-                >
-                  Try again
-                </button>
-              </>
-            )}
+        <div className="max-w-xl text-center" role="status">
+          <div className="mt-8">
+            <Eyebrow>
+              {playback.status === "loading"
+                ? "Opening Jellyfin"
+                : "Playback unavailable"}
+            </Eyebrow>
           </div>
-        )}
+          <h1 className="mt-[-0.5rem] text-3xl font-semibold tracking-tight sm:text-5xl">
+            {playback.episode ? playback.episode.title : media.title}
+          </h1>
+          {playback.episode ? (
+            <p className="mt-3 text-sm text-muted">
+              {media.title} · S{playback.episode.seasonNumber} E
+              {playback.episode.episodeNumber}
+            </p>
+          ) : null}
+          {playback.status === "loading" ? (
+            <p className="mt-6 text-sm text-muted">
+              Negotiating the best compatible local stream…
+            </p>
+          ) : (
+            <>
+              <p className="mt-6 text-sm text-amber-200">{playback.message}</p>
+              <button
+                type="button"
+                className={`${primaryButtonClass} mt-7`}
+                onClick={onRetry}
+              >
+                Try again
+              </button>
+            </>
+          )}
+        </div>
       </main>
     </FullScreenShell>
-  );
-}
-
-function JellyfinVideo({
-  playback,
-}: {
-  playback: Extract<ActivePlayback, { status: "ready" }>;
-}) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [playerError, setPlayerError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
-    let cancelled = false;
-    let destroyHls: (() => void) | undefined;
-    const seekToResumePosition = () => {
-      if (
-        playback.descriptor.delivery === "direct" &&
-        playback.resumeSeconds &&
-        Number.isFinite(video.duration)
-      ) {
-        video.currentTime = Math.min(
-          playback.resumeSeconds,
-          Math.max(0, video.duration - 1),
-        );
-      }
-    };
-    video.addEventListener("loadedmetadata", seekToResumePosition, { once: true });
-
-    if (
-      playback.descriptor.delivery === "direct" ||
-      video.canPlayType("application/vnd.apple.mpegurl")
-    ) {
-      video.src = playback.descriptor.mediaUrl;
-    } else {
-      void import("hls.js")
-        .then(({ default: Hls }) => {
-          if (cancelled) return;
-          if (!Hls.isSupported()) {
-            throw new Error("This browser cannot play HLS video.");
-          }
-          const hls = new Hls();
-          destroyHls = () => hls.destroy();
-          hls.on(Hls.Events.ERROR, (_event, data) => {
-            if (data.fatal) {
-              setPlayerError("The Jellyfin stream stopped unexpectedly.");
-            }
-          });
-          hls.loadSource(playback.descriptor.mediaUrl);
-          hls.attachMedia(video);
-        })
-        .catch((reason: unknown) => {
-          if (!cancelled) {
-            setPlayerError(
-              reason instanceof Error
-                ? reason.message
-                : "The video player could not start.",
-            );
-          }
-        });
-    }
-
-    return () => {
-      cancelled = true;
-      video.removeEventListener("loadedmetadata", seekToResumePosition);
-      destroyHls?.();
-      video.removeAttribute("src");
-      video.load();
-    };
-  }, [
-    playback.descriptor.delivery,
-    playback.descriptor.mediaUrl,
-    playback.resumeSeconds,
-  ]);
-
-  return (
-    <div className="w-full max-w-6xl">
-      <video
-        ref={videoRef}
-        className="aspect-video w-full bg-black shadow-2xl"
-        controls
-        autoPlay
-        playsInline
-        onError={() =>
-          setPlayerError("The browser could not play this Jellyfin stream.")
-        }
-      />
-      {playerError ? (
-        <p className="mt-4 text-center text-sm text-amber-200">{playerError}</p>
-      ) : null}
-    </div>
   );
 }
 

@@ -33,12 +33,16 @@ first available remote source; the dropdown exposes every available choice.
 Series titles keep this action fixed on the authoritative next-up episode while
 season browsing stays independent. Opening any episode, player, or download
 flow uses a full-screen navigation surface rather than a modal so the same
-information hierarchy can later support TV focus navigation.
+information hierarchy can later support TV focus navigation. Playback uses its
+own URL-backed route, so refreshing an open player reactivates the selected
+Jellyfin movie or episode instead of returning to title details.
 
 ## Checks
 
 Run `npm run lint` and `npm run build`. Run `npm test` with Node 22.18+
-for navigation URL regression coverage.
+for navigation and player regression coverage. Player tests mount the real React
+component in jsdom and simulate media events and HLS track discovery; real
+browser decoding and Jellyfin streaming still require a playback smoke test.
 
 Catalogue surfaces are URL-driven (`/?surface=movies` or `/?surface=series`).
 Collection pages support automatic pagination and a manual Load more control.

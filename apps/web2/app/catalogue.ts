@@ -167,7 +167,7 @@ export function collectionHref(apiHref: string) {
   return `/collection?href=${encodeURIComponent(apiHref)}`;
 }
 
-export function titleHref(item: MediaCard) {
+export function titleHref(item: Pick<MediaCard, "kind" | "id" | "progress">) {
   const query = new URLSearchParams();
   if (item.progress) {
     query.set("progress", String(item.progress.positionSeconds));
@@ -179,6 +179,23 @@ export function titleHref(item: MediaCard) {
   }
   const suffix = query.size ? `?${query.toString()}` : "";
   return `/title/${item.kind}/${encodeURIComponent(item.id)}${suffix}`;
+}
+
+export function playbackHref(
+  media: TitleMedia,
+  episode?: Episode,
+  resumeSeconds?: number,
+) {
+  const url = new URL(titleHref(media), "http://reel.local");
+  url.pathname = `${url.pathname}/play`;
+  if (resumeSeconds != null && Number.isFinite(resumeSeconds) && resumeSeconds > 0) {
+    url.searchParams.set("start", String(resumeSeconds));
+  }
+  if (episode) {
+    url.searchParams.set("season", String(episode.seasonNumber));
+    url.searchParams.set("episode", String(episode.episodeNumber));
+  }
+  return `${url.pathname}${url.search}`;
 }
 
 export function canonicalTmdbId(kind: MediaCard["kind"], id: string) {

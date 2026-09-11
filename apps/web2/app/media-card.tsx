@@ -154,7 +154,7 @@ export function CatalogueCard({
     const isLogo = item.categoryKind !== "genre";
     return (
       <Link
-        className="group relative block aspect-[4/3] w-full snap-start overflow-hidden rounded-xl border border-line bg-panel transition-[transform,border-color,box-shadow] duration-300 ease-out hover:z-10 hover:border-accent/50 hover:shadow-[0_18px_44px_#00000066] motion-safe:hover:-translate-y-1 motion-safe:hover:scale-[1.025]"
+        className="interactive-card interactive-card-shadow group relative block aspect-[4/3] w-full snap-start overflow-hidden rounded-xl border border-line bg-panel"
         href={collectionHref(item.href)}
       >
         {isLogo ? (
@@ -186,7 +186,7 @@ export function CatalogueCard({
           <span className="font-mono text-[10px] tracking-widest text-accent uppercase">
             {item.categoryKind}
           </span>
-          <strong className="text-base leading-tight tracking-tight [overflow-wrap:anywhere] sm:text-lg">
+          <strong className="interactive-card-title text-base leading-tight tracking-tight [overflow-wrap:anywhere] sm:text-lg">
             {item.title}
           </strong>
         </span>
@@ -210,7 +210,7 @@ export function CatalogueCard({
 
   return (
     <Link
-      className="group grid min-w-0 snap-start content-start gap-3 rounded-xl transition-transform duration-300 ease-out hover:z-10 motion-safe:hover:-translate-y-1 motion-safe:hover:scale-[1.035]"
+      className="interactive-card group grid min-w-0 snap-start content-start gap-3 rounded-xl"
       href={titleHref(item)}
       onMouseEnter={(event) => {
         interactions.current.hovered = true;
@@ -230,7 +230,7 @@ export function CatalogueCard({
       }}
     >
       <span
-        className={`relative block overflow-hidden rounded-xl border border-white/10 bg-panel transition-colors group-hover:border-accent/60 ${backdrop ? "aspect-video" : "aspect-[2/3]"}`}
+        className={`relative block overflow-hidden rounded-xl border border-white/10 bg-panel ${backdrop ? "aspect-video" : "aspect-[2/3]"}`}
       >
         <Artwork
           src={backdrop ? item.images.backdrop : item.images.poster}
@@ -252,7 +252,7 @@ export function CatalogueCard({
       </span>
       <span className="grid min-w-0 content-start">
         <strong
-          className={`${backdrop ? "line-clamp-1" : "line-clamp-2"} text-sm leading-5 font-semibold tracking-[-0.01em] group-hover:text-accent`}
+          className={`interactive-card-title ${backdrop ? "line-clamp-1" : "line-clamp-2"} text-sm leading-5 font-semibold tracking-[-0.01em]`}
         >
           {item.title}
         </strong>

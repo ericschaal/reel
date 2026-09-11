@@ -25,12 +25,43 @@ rewritten so playlists, segments and keys remain inside the same scoped Reel
 session. The Jellyfin API key is added only by the backend HTTP client.
 
 The web app exposes `/v1/playback/*` as a same-origin Next.js rewrite to the
-Reel API. It uses the browser video element for direct playback and native HLS.
-When native HLS is unavailable, `hls.js` is loaded on demand after activation.
+Reel API. It uses the browser video element for direct playback. HLS loads `hls.js` on
+demand when Media Source Extensions are supported, with native HLS as a
+fallback. This avoids native demuxers that advertise HLS but fail on subtitle
+renditions. Jellyfin subtitle negotiation requests HLS delivery so the player
+can load WebVTT cues through the same scoped session proxy.
 
 ## Current limits
 
 - Playback sessions are local to one API process and do not survive restarts.
 - Reel does not yet persist progress or report playback progress to Jellyfin.
-- Audio and subtitle source selection is left to the negotiated/default stream.
+- Playback descriptors include Jellyfin's normalized audio and subtitle stream
+  lists. Choosing a stream re-negotiates playback at the current position with
+  that exact Jellyfin stream index. Reel first resolves the preferred media
+  source, then supplies its ID with the selected indexes because Jellyfin
+  ignores track selections without a matching media-source ID. HLS-native
+  tracks remain available as a
+  fallback when upstream metadata is absent.
 - Stremio sources and automatic remote fallback remain out of scope.
+
+## Integration tests
+
+`cargo test -p reel-api --test playback` uses the real Jellyfin instance, following
+`tests/jellyfin.rs` and `tests/seerr.rs`. It loads `JELLYFIN_BASE_URL`,
+`JELLYFIN_API_KEY`, and `JELLYFIN_USERNAME` from the environment or
+`apps/api/.env.local`. When Jellyfin episodes only have TVDB metadata, fixture
+discovery also uses `SEERR_BASE_URL` and `SEERR_API_KEY` to resolve their canonical
+TMDb IDs from the season guide.
+
+Tests discover fixtures among the first 100 movies and episodes. The library
+must contain a movie with TMDb metadata and an episode with series TMDb metadata,
+audio, and at least two text subtitle tracks, including a non-default,
+non-forced track with cues in its first ten subtitle segments. Missing credentials,
+unavailable services, or unsuitable media fail the tests rather than skipping them.
+
+Coverage includes movie activation and byte ranges, exact episode resource
+scoping, audio selection, subtitle selection in the real HLS manifest, proxied
+WebVTT cues, and turning subtitles off. For movies requiring HLS, the range check
+uses the session's static media resource. The HLS check downloads one video
+segment and stops its encoding session. Pure URL rewriting and resource
+validation remain unit tests in `src/playback.rs`.

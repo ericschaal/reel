@@ -25,13 +25,246 @@
   summary {
     cursor: pointer;
   }
-  :where(a, button, input):focus-visible {
+  :root:not([data-input-modality="pointer"]) :where(
+    a,
+    button,
+    input,
+    select,
+    textarea,
+    summary,
+    [tabindex]:not([tabindex="-1"])
+  ):focus-visible {
     outline: 2px solid var(--color-accent);
     outline-offset: 4px;
   }
   ::selection {
     background: var(--color-accent);
     color: var(--color-background);
+  }
+
+  .player-settings-content {
+    max-height: min(280px, calc(100dvh - 210px));
+  }
+
+  .player-settings-options {
+    scrollbar-width: thin;
+    scrollbar-color: #ffffff30 transparent;
+  }
+
+  .player-range {
+    --range-progress: 0%;
+    appearance: none;
+    height: 18px;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .player-range::-webkit-slider-runnable-track {
+    height: 4px;
+    border-radius: 999px;
+    background: linear-gradient(
+      to right,
+      var(--color-accent) 0 var(--range-progress),
+      rgb(255 255 255 / 0.28) var(--range-progress) 100%
+    );
+  }
+
+  .player-range::-moz-range-track {
+    height: 4px;
+    border-radius: 999px;
+    background: linear-gradient(
+      to right,
+      var(--color-accent) 0 var(--range-progress),
+      rgb(255 255 255 / 0.28) var(--range-progress) 100%
+    );
+  }
+
+  .player-range::-webkit-slider-thumb {
+    appearance: none;
+    width: 15px;
+    height: 15px;
+    margin-top: -5.5px;
+    border: 0;
+    border-radius: 999px;
+    background: white;
+    box-shadow: 0 1px 8px rgb(0 0 0 / 0.55);
+    transform: scale(0.75);
+    transition: transform 150ms ease;
+  }
+
+  .player-range::-moz-range-thumb {
+    width: 15px;
+    height: 15px;
+    border: 0;
+    border-radius: 999px;
+    background: white;
+    box-shadow: 0 1px 8px rgb(0 0 0 / 0.55);
+  }
+
+  .player-range:hover::-webkit-slider-thumb,
+  .player-range:focus-visible::-webkit-slider-thumb {
+    transform: scale(1);
+  }
+
+  .player-progress-range:hover::-webkit-slider-runnable-track,
+  .player-progress-range:focus-visible::-webkit-slider-runnable-track {
+    height: 6px;
+  }
+
+  .player-range:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 3px;
+  }
+}
+
+@layer utilities {
+  /* Card controls use one borderless visual state for pointer hover and
+     keyboard focus. Scale, title color, and ambient art indicate focus. */
+  .interactive-card {
+    --interactive-card-scale: 1.035;
+    transition-property: transform;
+    transition-duration: 300ms;
+    transition-timing-function: ease-out;
+  }
+
+  .interactive-card:focus-visible {
+    outline: none;
+  }
+
+  .interactive-card-title {
+    transition: color 200ms ease-out;
+  }
+
+  :where(
+    :root:not([data-input-modality]) .interactive-card:hover,
+    :root:not([data-input-modality]) .interactive-card:focus-visible,
+    :root[data-input-modality="pointer"] .interactive-card:hover,
+    :root[data-input-modality="keyboard"] .interactive-card:focus-visible
+  ) {
+    z-index: 10;
+  }
+
+  :where(
+    :root:not([data-input-modality]) .interactive-card:hover,
+    :root:not([data-input-modality]) .interactive-card:focus-visible,
+    :root[data-input-modality="pointer"] .interactive-card:hover,
+    :root[data-input-modality="keyboard"] .interactive-card:focus-visible
+  )
+    .interactive-card-title {
+    color: var(--color-accent);
+  }
+
+  :where(
+    :root:not([data-input-modality]) .interactive-card:hover,
+    :root:not([data-input-modality]) .interactive-card:focus-visible,
+    :root[data-input-modality="pointer"] .interactive-card:hover,
+    :root[data-input-modality="keyboard"] .interactive-card:focus-visible
+  ).interactive-card-shadow {
+    box-shadow: 0 18px 44px rgb(0 0 0 / 0.4);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    :where(
+      :root:not([data-input-modality]) .interactive-card:hover,
+      :root:not([data-input-modality]) .interactive-card:focus-visible,
+      :root[data-input-modality="pointer"] .interactive-card:hover,
+      :root[data-input-modality="keyboard"] .interactive-card:focus-visible
+    ) {
+      transform: translateY(-0.25rem) scale(var(--interactive-card-scale));
+    }
+  }
+
+  .catalogue-nav-item {
+    color: var(--color-muted);
+    font-weight: 500;
+    outline: none;
+  }
+
+  .catalogue-nav {
+    --catalogue-nav-accent: #ffd166;
+  }
+
+  .catalogue-nav-item::after {
+    position: absolute;
+    right: 0;
+    bottom: 0.1rem;
+    left: 0;
+    height: 2px;
+    border-radius: 999px;
+    background: var(--catalogue-nav-accent);
+    content: "";
+    opacity: 0;
+    transform: scaleX(0.35);
+    transition:
+      opacity 120ms ease-out,
+      transform 160ms ease-out;
+  }
+
+  .catalogue-nav-item[data-visual-current="true"] {
+    color: var(--color-ink);
+    text-shadow: 0 0 18px rgb(255 255 255 / 0.12);
+  }
+
+  .catalogue-nav-item[data-visual-current="true"]::after {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+
+  :root[data-input-modality="keyboard"]
+    .catalogue-nav:focus-within
+    .catalogue-nav-item[data-visual-current="true"]:not(:focus),
+  :root:not([data-input-modality])
+    .catalogue-nav:focus-within
+    .catalogue-nav-item[data-visual-current="true"]:not(:focus),
+  :root[data-input-modality="pointer"]
+    .catalogue-nav:has(.catalogue-nav-item:hover)
+    .catalogue-nav-item[data-visual-current="true"]:not(:hover),
+  :root:not([data-input-modality])
+    .catalogue-nav:has(.catalogue-nav-item:hover)
+    .catalogue-nav-item[data-visual-current="true"]:not(:hover) {
+    color: var(--color-muted);
+    text-shadow: none;
+  }
+
+  :root[data-input-modality="keyboard"]
+    .catalogue-nav:focus-within
+    .catalogue-nav-item[data-visual-current="true"]:not(:focus)::after,
+  :root:not([data-input-modality])
+    .catalogue-nav:focus-within
+    .catalogue-nav-item[data-visual-current="true"]:not(:focus)::after,
+  :root[data-input-modality="pointer"]
+    .catalogue-nav:has(.catalogue-nav-item:hover)
+    .catalogue-nav-item[data-visual-current="true"]:not(:hover)::after,
+  :root:not([data-input-modality])
+    .catalogue-nav:has(.catalogue-nav-item:hover)
+    .catalogue-nav-item[data-visual-current="true"]:not(:hover)::after {
+    opacity: 0;
+  }
+
+  :root:not([data-input-modality]) .catalogue-nav-item:hover,
+  :root[data-input-modality="pointer"] .catalogue-nav-item:hover {
+    color: var(--catalogue-nav-accent);
+    text-shadow: 0 0 18px rgb(255 209 102 / 0.24);
+  }
+
+  :root:not([data-input-modality]) .catalogue-nav-item:hover::after,
+  :root[data-input-modality="pointer"] .catalogue-nav-item:hover::after {
+    opacity: 0.65;
+    transform: scaleX(0.65);
+  }
+
+  :root:not([data-input-modality]) .catalogue-nav-item:focus-visible,
+  :root[data-input-modality="keyboard"] .catalogue-nav-item:focus {
+    background: transparent;
+    box-shadow: none;
+    color: var(--catalogue-nav-accent);
+    text-shadow: 0 0 20px rgb(255 209 102 / 0.3);
+  }
+
+  :root:not([data-input-modality]) .catalogue-nav-item:focus-visible::after,
+  :root[data-input-modality="keyboard"] .catalogue-nav-item:focus::after {
+    opacity: 1;
+    transform: scaleX(1);
   }
 }
 

@@ -208,7 +208,10 @@ export function EpisodeRail({
   onOpenEpisode: (episode: Episode) => void;
 }) {
   return (
-    <div className="mt-6 flex snap-x snap-proximity gap-4 overflow-x-auto pb-5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+    <div
+      data-keyboard-rail="true"
+      className="mt-6 flex snap-x snap-proximity gap-4 overflow-x-auto pb-5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+    >
       {episodes.map((item) => {
         const current = item.id === currentEpisodeId;
         return (
@@ -217,7 +220,7 @@ export function EpisodeRail({
             type="button"
             aria-current={current ? "true" : undefined}
             onClick={() => onOpenEpisode(item)}
-            className={`group grid min-w-0 w-[78vw] max-w-xs shrink-0 snap-start content-start gap-3 overflow-hidden rounded-2xl border p-3 text-left transition-[transform,border-color,background-color] motion-safe:hover:-translate-y-1 ${current ? "border-accent bg-accent/7" : "border-line bg-panel/70 hover:border-white/40 hover:bg-white/5"}`}
+            className={`interactive-card group grid min-w-0 w-[78vw] max-w-xs shrink-0 snap-start content-start gap-3 overflow-hidden rounded-2xl border p-3 text-left ${current ? "border-accent bg-accent/7" : "border-line bg-panel/70"}`}
           >
             <span className="relative block aspect-video overflow-hidden rounded-xl bg-panel">
               <Artwork src={item.still} sizes="320px" />
@@ -241,7 +244,7 @@ export function EpisodeRail({
                 <span className="shrink-0 font-mono text-xs text-accent">
                   E{item.episodeNumber}
                 </span>
-                <strong className="min-w-0 flex-1 truncate text-sm font-semibold group-hover:text-accent">
+                <strong className="min-w-0 flex-1 truncate text-sm font-semibold interactive-card-title">
                   {item.title}
                 </strong>
               </span>
