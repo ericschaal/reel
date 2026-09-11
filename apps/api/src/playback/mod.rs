@@ -31,8 +31,8 @@ use types::{
     PlaybackTarget, PlayerCapabilities,
 };
 
-const SESSION_TTL: Duration = Duration::from_secs(6 * 60 * 60);
-const DISCOVERY_TTL: Duration = Duration::from_secs(15 * 60);
+const SESSION_TTL: Duration = Duration::from_hours(6);
+const DISCOVERY_TTL: Duration = Duration::from_mins(15);
 
 #[derive(Clone)]
 pub struct Playback {

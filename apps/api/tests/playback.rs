@@ -82,7 +82,7 @@ impl Fixture {
             request = request.header(header::RANGE, range);
         }
         tokio::time::timeout(
-            Duration::from_secs(60),
+            Duration::from_mins(1),
             self.app
                 .clone()
                 .oneshot(request.body(Body::empty()).unwrap()),
@@ -226,7 +226,7 @@ impl Fixture {
                 canonical.id
             };
             let target = json!({"kind":"episode", "tmdbId":tmdb_id, "seriesTmdbId":series_tmdb_id, "seasonNumber":season, "episodeNumber":number});
-            let descriptor = self.activate(json!({"target":target, "capabilities":capabilities(), "startPositionSeconds":3.705481155982247})).await;
+            let descriptor = self.activate(json!({"target":target, "capabilities":capabilities(), "startPositionSeconds":3.705_481_155_982_247})).await;
             if text_subtitles(&descriptor).count() >= 2
                 && text_subtitles(&descriptor)
                     .any(|track| track["isDefault"] != true && track["isForced"] != true)
@@ -243,7 +243,7 @@ impl Fixture {
 
 async fn response_text(response: Response) -> String {
     let bytes = tokio::time::timeout(
-        Duration::from_secs(60),
+        Duration::from_mins(1),
         to_bytes(response.into_body(), 2_000_000),
     )
     .await
@@ -362,183 +362,7 @@ async fn mock_remote_upstreams(
             "Items": [], "TotalRecordCount": 0, "StartIndex": 0
         }))
         .into_response(),
-        "/api/v1/search" => {
-            let mut calls = state.calls.lock().unwrap();
-            calls
-                .search_queries
-                .push(uri.query().unwrap_or_default().to_owned());
-            calls.search_authenticated = headers
-                .get(header::AUTHORIZATION)
-                .and_then(|value| value.to_str().ok())
-                .is_some_and(|value| value.starts_with("Basic "));
-            drop(calls);
-            if uri.query().is_some_and(|query| query.contains("id=tmdb%3A410")) {
-                return Json(json!({"success":true,"data":{"results":[
-                    {"url":format!("{}/media/error.mp4",state.base_url),"parsedFile":{"container":"mp4","encode":"AVC"}},
-                    {"url":format!("{}/media/first.mp4",state.base_url),"parsedFile":{"container":"mp4","encode":"AVC"}}
-                ]}})).into_response();
-            }
-            if uri
-                .query()
-                .is_some_and(|query| query.contains("id=tmdb%3A404"))
-            {
-                return Json(json!({
-                    "success": true,
-                    "detail": null,
-                    "error": null,
-                    "data": {
-                        "filtered": 0,
-                        "results": [],
-                        "statistics": [],
-                        "errors": [
-                            {"title": "Provider one", "description": "forbidden"},
-                            {"title": "Provider two", "description": "authentication failed"}
-                        ]
-                    }
-                }))
-                .into_response();
-            }
-            if uri
-                .query()
-                .is_some_and(|query| query.contains("id=tmdb%3A405"))
-            {
-                return Json(json!({
-                    "success": true,
-                    "detail": null,
-                    "error": null,
-                    "data": {
-                        "filtered": 0,
-                        "results": [{
-                            "url": format!("{}/media/first.mp4", state.base_url),
-                            "requestHeaders": {},
-                            "parsedFile": {"container": "mkv"},
-                            "notWebReady": true
-                        }],
-                        "statistics": [],
-                        "errors": [{"title": "Optional provider", "description": "timed out"}]
-                    }
-                }))
-                .into_response();
-            }
-            if uri
-                .query()
-                .is_some_and(|query| query.contains("id=tmdb%3A5920%3A1%3A1"))
-            {
-                return Json(json!({
-                    "success": true,
-                    "detail": null,
-                    "error": null,
-                    "data": {
-                        "filtered": 0,
-                        "results": [],
-                        "statistics": [],
-                        "errors": [
-                            {"title": "Provider one", "description": "forbidden"},
-                            {"title": "Provider two", "description": "authentication failed"}
-                        ]
-                    }
-                }))
-                .into_response();
-            }
-            if uri
-                .query()
-                .is_some_and(|query| query.contains("id=tmdb%3A406"))
-            {
-                return Json(json!({
-                    "success": true,
-                    "detail": null,
-                    "error": null,
-                    "data": {
-                        "results": [{
-                            "url": format!("{}/media/browser.mkv", state.base_url),
-                            "requestHeaders": {},
-                            "parsedFile": {"container": "mkv", "encode": "AVC"},
-                            "notWebReady": false
-                        }],
-                        "errors": []
-                    }
-                }))
-                .into_response();
-            }
-            if uri
-                .query()
-                .is_some_and(|query| query.contains("id=tmdb%3A407"))
-            {
-                return Json(json!({
-                    "success": true,
-                    "detail": null,
-                    "error": null,
-                    "data": {
-                        "results": [
-                            {
-                                "url": format!("{}/media/vc1.mkv", state.base_url),
-                                "requestHeaders": {},
-                                "parsedFile": {"container": "mkv", "encode": "VC-1"},
-                                "notWebReady": false
-                            },
-                            {
-                                "url": format!("{}/media/browser.mkv", state.base_url),
-                                "requestHeaders": {},
-                                "parsedFile": {"container": "mkv", "encode": "AVC"},
-                                "notWebReady": false
-                            },
-                            {
-                                "url": format!("{}/media/browser.mp4", state.base_url),
-                                "requestHeaders": {},
-                                "parsedFile": {"container": "mp4", "encode": "AVC"},
-                                "notWebReady": false
-                            }
-                        ],
-                        "errors": []
-                    }
-                }))
-                .into_response();
-            }
-            Json(json!({
-                "success": true,
-                "detail": null,
-                "error": null,
-                "data": {
-                    "filtered": 2,
-                    "results": [
-                        {
-                            "url": format!("{}/media/first.mp4", state.base_url),
-                            "requestHeaders": {
-                                "Referer": "https://provider.example/",
-                                "Authorization": "Bearer upstream-secret",
-                                "Range": "bytes=100-200"
-                            },
-                            "parsedFile": {
-                                "container": "mp4", "encode": "AVC", "resolution": "2160p", "quality": "WEB-DL"
-                            },
-                            "addon": "First addon", "service": "debrid", "cached": true,
-                            "size": 2147483648_u64, "duration": 7200, "notWebReady": false,
-                            "name": "First formatted source"
-                        },
-                        {
-                            "url": format!("{}/media/master.m3u8", state.base_url),
-                            "requestHeaders": {},
-                            "parsedFile": {
-                                "container": "hls", "resolution": "1080p", "quality": "WEB-DL"
-                            },
-                            "addon": "Second addon", "service": null, "cached": null,
-                            "size": null, "duration": null, "notWebReady": false,
-                            "name": "Second formatted source"
-                        },
-                        {
-                            "url": "file:///etc/passwd", "requestHeaders": {}, "parsedFile": null
-                        },
-                        {
-                            "url": null, "requestHeaders": {}, "parsedFile": null,
-                            "infoHash": "torrent-only"
-                        }
-                    ],
-                    "statistics": [],
-                    "errors": [{"title": "Optional provider", "description": "timed out"}]
-                }
-            }))
-            .into_response()
-        }
+        "/api/v1/search" => mock_aiostreams_search(&state, uri.query(), &headers),
         "/media/first.mp4" => {
             let mut calls = state.calls.lock().unwrap();
             calls.media_range = headers
@@ -564,17 +388,7 @@ async fn mock_remote_upstreams(
             )
                 .into_response()
         }
-        "/media/browser.mkv" | "/media/vc1.mkv" => (
-            StatusCode::PARTIAL_CONTENT,
-            [
-                (header::CONTENT_TYPE, "application/force-download"),
-                (header::CONTENT_RANGE, "bytes 0-3/8"),
-                (header::ACCEPT_RANGES, "bytes"),
-            ],
-            "data",
-        )
-            .into_response(),
-        "/media/browser.mp4" => (
+        "/media/browser.mkv" | "/media/vc1.mkv" | "/media/browser.mp4" => (
             StatusCode::PARTIAL_CONTENT,
             [
                 (header::CONTENT_TYPE, "application/force-download"),
@@ -610,10 +424,135 @@ async fn mock_remote_upstreams(
     }
 }
 
+fn mock_aiostreams_search(
+    state: &RemoteState,
+    query: Option<&str>,
+    headers: &HeaderMap,
+) -> Response {
+    let query = query.unwrap_or_default();
+    let mut calls = state.calls.lock().unwrap();
+    calls.search_queries.push(query.to_owned());
+    calls.search_authenticated = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.starts_with("Basic "));
+    drop(calls);
+
+    let value = if query.contains("id=tmdb%3A410") {
+        retry_search_response(&state.base_url)
+    } else if query.contains("id=tmdb%3A404") || query.contains("id=tmdb%3A5920%3A1%3A1") {
+        failed_search_response()
+    } else if query.contains("id=tmdb%3A405") {
+        non_web_ready_search_response(&state.base_url)
+    } else if query.contains("id=tmdb%3A406") {
+        browser_search_response(&state.base_url)
+    } else if query.contains("id=tmdb%3A407") {
+        ranked_search_response(&state.base_url)
+    } else {
+        default_search_response(&state.base_url)
+    };
+    Json(value).into_response()
+}
+
+fn retry_search_response(base_url: &str) -> Value {
+    json!({"success":true,"data":{"results":[
+        {"url":format!("{base_url}/media/error.mp4"),"parsedFile":{"container":"mp4","encode":"AVC"}},
+        {"url":format!("{base_url}/media/first.mp4"),"parsedFile":{"container":"mp4","encode":"AVC"}}
+    ]}})
+}
+
+fn failed_search_response() -> Value {
+    json!({
+        "success": true, "detail": null, "error": null,
+        "data": {
+            "filtered": 0, "results": [], "statistics": [],
+            "errors": [
+                {"title": "Provider one", "description": "forbidden"},
+                {"title": "Provider two", "description": "authentication failed"}
+            ]
+        }
+    })
+}
+
+fn non_web_ready_search_response(base_url: &str) -> Value {
+    json!({
+        "success": true, "detail": null, "error": null,
+        "data": {
+            "filtered": 0,
+            "results": [{
+                "url": format!("{base_url}/media/first.mp4"), "requestHeaders": {},
+                "parsedFile": {"container": "mkv"}, "notWebReady": true
+            }],
+            "statistics": [],
+            "errors": [{"title": "Optional provider", "description": "timed out"}]
+        }
+    })
+}
+
+fn browser_search_response(base_url: &str) -> Value {
+    json!({
+        "success": true, "detail": null, "error": null,
+        "data": {
+            "results": [{
+                "url": format!("{base_url}/media/browser.mkv"), "requestHeaders": {},
+                "parsedFile": {"container": "mkv", "encode": "AVC"}, "notWebReady": false
+            }],
+            "errors": []
+        }
+    })
+}
+
+fn ranked_search_response(base_url: &str) -> Value {
+    json!({
+        "success": true, "detail": null, "error": null,
+        "data": {"results": [
+            {"url": format!("{base_url}/media/vc1.mkv"), "requestHeaders": {},
+             "parsedFile": {"container": "mkv", "encode": "VC-1"}, "notWebReady": false},
+            {"url": format!("{base_url}/media/browser.mkv"), "requestHeaders": {},
+             "parsedFile": {"container": "mkv", "encode": "AVC"}, "notWebReady": false},
+            {"url": format!("{base_url}/media/browser.mp4"), "requestHeaders": {},
+             "parsedFile": {"container": "mp4", "encode": "AVC"}, "notWebReady": false}
+        ], "errors": []}
+    })
+}
+
+fn default_search_response(base_url: &str) -> Value {
+    json!({
+        "success": true, "detail": null, "error": null,
+        "data": {
+            "filtered": 2,
+            "results": [
+                {
+                    "url": format!("{base_url}/media/first.mp4"),
+                    "requestHeaders": {
+                        "Referer": "https://provider.example/",
+                        "Authorization": "Bearer upstream-secret", "Range": "bytes=100-200"
+                    },
+                    "parsedFile": {"container": "mp4", "encode": "AVC", "resolution": "2160p", "quality": "WEB-DL"},
+                    "addon": "First addon", "service": "debrid", "cached": true,
+                    "size": 2_147_483_648_u64, "duration": 7200, "notWebReady": false,
+                    "name": "First formatted source"
+                },
+                {
+                    "url": format!("{base_url}/media/master.m3u8"), "requestHeaders": {},
+                    "parsedFile": {"container": "hls", "resolution": "1080p", "quality": "WEB-DL"},
+                    "addon": "Second addon", "service": null, "cached": null,
+                    "size": null, "duration": null, "notWebReady": false,
+                    "name": "Second formatted source"
+                },
+                {"url": "file:///etc/passwd", "requestHeaders": {}, "parsedFile": null},
+                {"url": null, "requestHeaders": {}, "parsedFile": null, "infoHash": "torrent-only"}
+            ],
+            "statistics": [],
+            "errors": [{"title": "Optional provider", "description": "timed out"}]
+        }
+    })
+}
+
 fn capabilities() -> Value {
     json!({
         "containers":["mp4","webm"], "videoCodecs":["h264","vp9"],
-        "audioCodecs":["aac","opus"], "hls":true, "maxStreamingBitrate":40000000
+        "audioCodecs":["aac","opus"], "hls":true, "maxStreamingBitrate":40_000_000
     })
 }
 
@@ -621,7 +560,7 @@ fn capabilities_with_matroska() -> Value {
     json!({
         "containers":["mp4","webm"], "videoCodecs":["h264","vp9"],
         "audioCodecs":["aac","opus"], "hls":true,
-        "maxStreamingBitrate":40000000,
+        "maxStreamingBitrate":40_000_000,
         "directPlayProfiles":[
             {"container":"mp4","videoCodec":"h264"},
             {"container":"webm","videoCodec":"vp9"},
@@ -741,7 +680,7 @@ async fn selects_real_episode_tracks_and_proxies_hls_subtitles() {
         .unwrap();
     let selected_index = subtitle["index"].as_i64().unwrap();
     let selected = fixture.activate(json!({
-        "target":target, "capabilities":capabilities(), "startPositionSeconds":3.705481155982247,
+        "target":target, "capabilities":capabilities(), "startPositionSeconds":3.705_481_155_982_247,
         "audioStreamIndex":audio["index"], "subtitleStreamIndex":selected_index
     })).await;
     assert_eq!(selected["delivery"], "hls");
@@ -787,7 +726,7 @@ async fn selects_real_episode_tracks_and_proxies_hls_subtitles() {
     let segment_status = segment.status();
     // Consume just one segment so this test does not download the whole video.
     let bytes = tokio::time::timeout(
-        Duration::from_secs(60),
+        Duration::from_mins(1),
         to_bytes(segment.into_body(), 32_000_000),
     )
     .await;
@@ -1121,7 +1060,7 @@ async fn maps_exact_episodes_and_rewrites_remote_hls_to_opaque_resources() {
 async fn discovers_an_episode_with_its_stremio_imdb_identifier() {
     let fixture = RemoteFixture::new().await;
     let target = json!({
-        "kind":"episode", "tmdbId":367686, "seriesTmdbId":5920,
+        "kind":"episode", "tmdbId":367_686, "seriesTmdbId":5920,
         "imdbId":"tt1196946", "seasonNumber":1, "episodeNumber":1
     });
     let (status, discovery) = fixture

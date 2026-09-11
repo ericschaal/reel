@@ -538,7 +538,7 @@ async fn studio_cards_open_paginated_movie_collections() {
     let studios = category_cards(&catalogue, "studios");
     assert_eq!(
         studios.iter().map(|studio| studio.id).collect::<Vec<_>>(),
-        [2, 127928, 34, 174, 33, 4, 3, 521, 420, 9993, 41077]
+        [2, 127_928, 34, 174, 33, 4, 3, 521, 420, 9_993, 41_077]
     );
     assert_eq!(
         studios

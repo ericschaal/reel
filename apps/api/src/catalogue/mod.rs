@@ -64,6 +64,11 @@ impl Catalogue {
         }
     }
 
+    /// Builds the discovery catalogue in the requested language.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Unavailable`] when no upstream catalogue section can be built.
     pub async fn discover(&self, language: Option<&str>) -> Result<CatalogueResponse, Error> {
         let trending_query = trending_query(TrendingMediaType::All, 1, language);
         let movies_query = popular_movies_query(1, language);
@@ -89,6 +94,11 @@ impl Catalogue {
         builder.finish(self).await
     }
 
+    /// Builds the movie catalogue in the requested language.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Unavailable`] when no upstream catalogue section can be built.
     pub async fn movies(&self, language: Option<&str>) -> Result<CatalogueResponse, Error> {
         let trending_query = trending_query(TrendingMediaType::Movie, 1, language);
         let popular_query = popular_movies_query(1, language);
@@ -108,6 +118,11 @@ impl Catalogue {
         builder.finish(self).await
     }
 
+    /// Builds the series catalogue in the requested language.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Unavailable`] when no upstream catalogue section can be built.
     pub async fn series(&self, language: Option<&str>) -> Result<CatalogueResponse, Error> {
         // A Jellyfin series item proves library presence, not that every episode is playable.
         // Episode-level availability belongs on the series hierarchy, not catalogue cards.
@@ -127,6 +142,11 @@ impl Catalogue {
         builder.finish(self).await
     }
 
+    /// Loads normalized details for a series.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the title does not exist or Seerr is unavailable.
     pub async fn series_details(
         &self,
         tmdb_id: TmdbId,
@@ -145,6 +165,11 @@ impl Catalogue {
         Ok(media::normalize_series_details(details.clone()))
     }
 
+    /// Loads series details and, when possible, its initial season guide.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the series does not exist or its core metadata is unavailable.
     pub async fn series_details_with_initial_season(
         &self,
         tmdb_id: TmdbId,
@@ -172,6 +197,11 @@ impl Catalogue {
         Ok(response)
     }
 
+    /// Loads normalized details and local availability for a movie.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the movie does not exist or its core metadata is unavailable.
     pub async fn movie_details(
         &self,
         tmdb_id: TmdbId,
@@ -199,6 +229,11 @@ impl Catalogue {
         Ok(response)
     }
 
+    /// Loads normalized details and episode availability for a season.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the season does not exist or Seerr is unavailable.
     pub async fn season_details(
         &self,
         tmdb_id: TmdbId,
@@ -272,6 +307,7 @@ impl Catalogue {
         })
     }
 
+    #[must_use]
     pub fn manifest(&self, surface: Surface, language: Option<&str>) -> CatalogueManifest {
         CatalogueManifest {
             surface,
@@ -288,6 +324,12 @@ impl Catalogue {
         }
     }
 
+    /// Builds a single catalogue rail.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::NotFound`] for an unknown rail and [`Error::Unavailable`]
+    /// when its upstream data cannot produce a section.
     pub async fn rail(
         &self,
         surface: Surface,
@@ -332,10 +374,10 @@ impl Catalogue {
                 self.seerr.series(&popular_series_query(1, language)).await,
             ),
             "movie-genres" => {
-                builder.genres(MediaKind::Movie, self.seerr.movie_genres(language).await)
+                builder.genres(MediaKind::Movie, self.seerr.movie_genres(language).await);
             }
             "series-genres" => {
-                builder.genres(MediaKind::Series, self.seerr.series_genres(language).await)
+                builder.genres(MediaKind::Series, self.seerr.series_genres(language).await);
             }
             "studios" => builder.curated(CategoryKind::Studio, STUDIOS),
             "networks" => builder.curated(CategoryKind::Network, NETWORKS),
@@ -573,7 +615,7 @@ impl<'a> SurfaceBuilder<'a> {
                         .any(|issue| issue.source == CatalogueSource::Jellyfin),
                 ),
             }),
-            Err(error) => self.seerr_issue(collection.id(), error),
+            Err(error) => self.seerr_issue(collection.id(), &error),
         }
     }
 
@@ -611,7 +653,7 @@ impl<'a> SurfaceBuilder<'a> {
                     })
                     .collect(),
             ),
-            Err(error) => self.seerr_issue(section_id, error),
+            Err(error) => self.seerr_issue(section_id, &error),
         }
     }
 
@@ -655,7 +697,7 @@ impl<'a> SurfaceBuilder<'a> {
         });
     }
 
-    fn seerr_issue(&mut self, section_id: impl Into<String>, error: crate::seerr::Error) {
+    fn seerr_issue(&mut self, section_id: impl Into<String>, error: &crate::seerr::Error) {
         let section_id = section_id.into();
         tracing::warn!(%error, section_id, "Seerr catalogue section is unavailable");
         self.issues.push(CatalogueIssue::upstream(

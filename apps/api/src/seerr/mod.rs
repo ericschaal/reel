@@ -23,6 +23,12 @@ pub struct Seerr {
 }
 
 impl Seerr {
+    /// Creates an authenticated Seerr client.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the URL or API-key header is invalid, or when the
+    /// HTTP client cannot be created.
     pub fn new(base_url: impl AsRef<str>, api_key: impl AsRef<str>) -> Result<Self> {
         let base_url = api_base_url(base_url.as_ref())?;
         let mut headers = HeaderMap::new();
@@ -37,30 +43,60 @@ impl Seerr {
         Ok(Self { http })
     }
 
+    /// Fetches trending media.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the request fails or the response is invalid.
     pub async fn trending(&self, query: &TrendingQuery) -> Result<DiscoverResponse> {
         self.http.get_with_query("discover/trending", query).await
     }
 
+    /// Discovers movies matching `query`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the request fails or the response is invalid.
     pub async fn movies(&self, query: &DiscoverMoviesQuery) -> Result<DiscoverResponse> {
         self.http.get_with_query("discover/movies", query).await
     }
 
+    /// Discovers series matching `query`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the request fails or the response is invalid.
     pub async fn series(&self, query: &DiscoverSeriesQuery) -> Result<DiscoverResponse> {
         self.http.get_with_query("discover/tv", query).await
     }
 
+    /// Fetches movie genres in the requested language.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the request fails or the response is invalid.
     pub async fn movie_genres(&self, language: Option<&str>) -> Result<Vec<GenreSliderItem>> {
         self.http
             .get_with_query("discover/genreslider/movie", &LanguageQuery { language })
             .await
     }
 
+    /// Fetches series genres in the requested language.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the request fails or the response is invalid.
     pub async fn series_genres(&self, language: Option<&str>) -> Result<Vec<GenreSliderItem>> {
         self.http
             .get_with_query("discover/genreslider/tv", &LanguageQuery { language })
             .await
     }
 
+    /// Discovers movies produced by a studio.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the request fails or the response is invalid.
     pub async fn movies_by_studio(
         &self,
         studio_id: i64,
@@ -75,6 +111,11 @@ impl Seerr {
             .await
     }
 
+    /// Discovers series carried by a network.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the request fails or the response is invalid.
     pub async fn series_by_network(
         &self,
         network_id: i64,
@@ -89,6 +130,11 @@ impl Seerr {
             .await
     }
 
+    /// Discovers movies in a genre.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the request fails or the response is invalid.
     pub async fn movies_by_genre(
         &self,
         genre_id: i64,
@@ -103,6 +149,11 @@ impl Seerr {
             .await
     }
 
+    /// Discovers series in a genre.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the request fails or the response is invalid.
     pub async fn series_by_genre(
         &self,
         genre_id: i64,
@@ -117,6 +168,12 @@ impl Seerr {
             .await
     }
 
+    /// Searches for movies and series.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the endpoint URL cannot be built, the request
+    /// fails, or the response is invalid.
     pub async fn search(&self, query: &SearchQuery) -> Result<DiscoverResponse> {
         // Seerr rejects form encoding (`+` for spaces) here and requires every
         // reserved character in these values to use percent encoding.
@@ -139,12 +196,22 @@ impl Seerr {
         self.http.get_url(url).await
     }
 
+    /// Fetches details for a movie.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the request fails or the response is invalid.
     pub async fn movie(&self, tmdb_id: TmdbId, language: Option<&str>) -> Result<MovieDetails> {
         self.http
             .get_with_query(&format!("movie/{tmdb_id}"), &LanguageQuery { language })
             .await
     }
 
+    /// Fetches details for a series.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the request fails or the response is invalid.
     pub async fn series_details(
         &self,
         tmdb_id: TmdbId,
@@ -155,6 +222,11 @@ impl Seerr {
             .await
     }
 
+    /// Fetches details for a season.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the request fails or the response is invalid.
     pub async fn season_details(
         &self,
         tmdb_id: TmdbId,

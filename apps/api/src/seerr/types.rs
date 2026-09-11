@@ -41,6 +41,7 @@ pub struct DiscoverResult {
 }
 
 impl DiscoverResult {
+    #[must_use]
     pub fn display_title(&self) -> Option<&str> {
         self.title.as_deref().or(self.name.as_deref())
     }

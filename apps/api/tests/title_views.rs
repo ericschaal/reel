@@ -76,7 +76,9 @@ async fn mock(State(calls): State<Calls>, OriginalUri(uri): OriginalUri) -> Resp
         "/api/v1/tv/3" => {
             json!({"id":3,"name":"Partial Series","seasons":[{"id":30,"seasonNumber":1,"name":"Season 1","episodeCount":1}]})
         }
-        "/api/v1/movie/500" => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+        "/api/v1/movie/500" | "/Items" => {
+            return StatusCode::SERVICE_UNAVAILABLE.into_response();
+        }
         "/api/v1/discover/trending" => json!({"page":1,"totalPages":1,"totalResults":3,"results":[
             {"id":1,"mediaType":"movie","title":"Movie"},
             {"id":2,"mediaType":"tv","name":"Series"},
@@ -86,7 +88,6 @@ async fn mock(State(calls): State<Calls>, OriginalUri(uri): OriginalUri) -> Resp
             json!({"page":1,"totalPages":1,"totalResults":1,"results":[{"id":1,"mediaType":"movie","title":"Movie","overview":"Do not return this on cards"}]})
         }
         // Unavailable Jellyfin deliberately distinguishes unknown from not local.
-        "/Items" => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
         _ => return StatusCode::NOT_FOUND.into_response(),
     };
     Json(value).into_response()

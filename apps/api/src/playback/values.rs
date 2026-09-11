@@ -1,23 +1,27 @@
 use super::Error;
 use serde::{Deserialize, Serialize};
 
-/// Finite, non-negative seconds representable by Jellyfin's signed tick count.
+/// Finite, non-negative seconds represented as Jellyfin's signed tick count.
 #[derive(Debug, Clone, Copy, Deserialize)]
 #[serde(try_from = "f64")]
-pub(super) struct PlaybackPosition(f64);
+pub(super) struct PlaybackPosition(i64);
 impl TryFrom<f64> for PlaybackPosition {
     type Error = Error;
     fn try_from(seconds: f64) -> Result<Self, Error> {
-        let ticks = (seconds * 10_000_000.0).round();
-        if !seconds.is_finite() || seconds < 0.0 || ticks >= i64::MAX as f64 {
+        if !seconds.is_finite() || seconds < 0.0 {
             return Err(Error::InvalidStartPosition);
         }
-        Ok(Self(seconds))
+        let ticks = (seconds * 10_000_000.0)
+            .round()
+            .to_string()
+            .parse()
+            .map_err(|_| Error::InvalidStartPosition)?;
+        Ok(Self(ticks))
     }
 }
 impl PlaybackPosition {
     pub(super) fn jellyfin_ticks(self) -> i64 {
-        (self.0 * 10_000_000.0).round() as i64
+        self.0
     }
 }
 
@@ -82,7 +86,7 @@ mod tests {
             f64::NAN,
             f64::INFINITY,
             f64::NEG_INFINITY,
-            i64::MAX as f64 / 10_000_000.0,
+            922_337_203_685.477_5,
         ] {
             assert!(PlaybackPosition::try_from(seconds).is_err());
         }

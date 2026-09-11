@@ -5,7 +5,7 @@ use std::{fmt, str::FromStr};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-/// A validated positive identifier from The Movie Database (TMDb).
+/// A validated positive identifier from The Movie Database (`TMDb`).
 #[derive(Debug, Clone, Copy, Hash, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(try_from = "i64", into = "i64")]
 pub struct TmdbId(i64);
@@ -52,7 +52,7 @@ impl FromStr for TmdbId {
     }
 }
 
-/// Returned when a TMDb identifier is zero, negative, or not an integer.
+/// Returned when a `TMDb` identifier is zero, negative, or not an integer.
 #[derive(Debug, Clone, Copy, Error, PartialEq, Eq)]
 #[error("TMDb ID must be a positive integer")]
 pub struct InvalidTmdbId;
@@ -125,6 +125,7 @@ pub struct InvalidSeasonNumber;
 pub struct EpisodeNumber(i32);
 
 impl EpisodeNumber {
+    #[must_use]
     pub const fn get(self) -> i32 {
         self.0
     }
@@ -153,12 +154,13 @@ impl fmt::Display for EpisodeNumber {
 #[error("episode number must be positive")]
 pub struct InvalidEpisodeNumber;
 
-/// An IMDb title identifier. This validates syntax, not a cross-provider mapping.
+/// An `IMDb` title identifier. This validates syntax, not a cross-provider mapping.
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct ImdbTitleId(String);
 
 impl ImdbTitleId {
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }

@@ -285,7 +285,7 @@ async fn register_resource_url(
                 return Err(Error::InvalidResource);
             }
             url = without_jellyfin_credentials(url);
-            return Ok(proxy_resource_url(url, session_id));
+            return Ok(proxy_resource_url(&url, session_id));
         }
         SessionSource::AioStreams { .. } => {
             if !matches!(url.scheme(), "http" | "https")
@@ -306,7 +306,7 @@ async fn register_resource_url(
     Ok(session_id.resource_path(resource_id))
 }
 
-fn proxy_resource_url(url: Url, session_id: &SessionId) -> String {
+fn proxy_resource_url(url: &Url, session_id: &SessionId) -> String {
     let encoded = URL_SAFE_NO_PAD.encode(url.as_str());
     session_id.resource_path(encoded)
 }

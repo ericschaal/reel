@@ -253,7 +253,7 @@ fn fallback_logs_each_failure_once_and_redacts_provider_details() {
                 body: "provider-secret-body".into(),
             })
             .into_response();
-        })
+        });
     });
     let logs = String::from_utf8(output.lock().unwrap().clone()).unwrap();
     assert_eq!(

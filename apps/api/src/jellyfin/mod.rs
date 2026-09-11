@@ -42,27 +42,49 @@ pub struct Jellyfin {
 }
 
 impl Jellyfin {
+    /// Creates an authenticated Jellyfin client with Reel's default client identity.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the URL or authentication header is invalid, or
+    /// when the HTTP client cannot be created.
     pub fn new(base_url: impl AsRef<str>, access_token: impl AsRef<str>) -> Result<Self> {
         Self::with_client_info(base_url, Some(access_token.as_ref()), ClientInfo::default())
     }
 
+    /// Creates an unauthenticated Jellyfin client.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the URL is invalid or the HTTP client cannot be created.
     pub fn unauthenticated(base_url: impl AsRef<str>) -> Result<Self> {
         Self::with_client_info(base_url, None, ClientInfo::default())
     }
 
+    /// Creates a Jellyfin client with an explicit client identity.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the URL or authentication header is invalid, or
+    /// when the HTTP client cannot be created.
     pub fn with_client_info(
         base_url: impl AsRef<str>,
         access_token: Option<&str>,
         client_info: ClientInfo,
     ) -> Result<Self> {
         let base_url = parse_base_url(Integration::Jellyfin, base_url.as_ref())?;
+        let ClientInfo {
+            name,
+            device,
+            device_id,
+            version,
+        } = client_info;
 
         let mut headers = HeaderMap::new();
         headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
 
         let mut authorization = format!(
-            "MediaBrowser Client=\"{}\", Device=\"{}\", DeviceId=\"{}\", Version=\"{}\"",
-            client_info.name, client_info.device, client_info.device_id, client_info.version
+            "MediaBrowser Client=\"{name}\", Device=\"{device}\", DeviceId=\"{device_id}\", Version=\"{version}\""
         );
         if let Some(token) = access_token.filter(|token| !token.is_empty()) {
             let _ = write!(authorization, ", Token=\"{token}\"");
@@ -77,18 +99,38 @@ impl Jellyfin {
         Ok(Self { http })
     }
 
+    /// Fetches public Jellyfin server information.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the request fails or the response is invalid.
     pub async fn public_system_info(&self) -> Result<PublicSystemInfo> {
         self.http.get("System/Info/Public").await
     }
 
+    /// Fetches authenticated Jellyfin server information.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the request fails or the response is invalid.
     pub async fn system_info(&self) -> Result<PublicSystemInfo> {
         self.http.get("System/Info").await
     }
 
+    /// Fetches the Jellyfin users visible to this client.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the request fails or the response is invalid.
     pub async fn users(&self) -> Result<Vec<User>> {
         self.http.get("Users").await
     }
 
+    /// Queries Jellyfin library items.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the request fails or the response is invalid.
     pub async fn items(&self, query: &ItemsQuery) -> Result<ItemQueryResult> {
         let mut parameters = common_item_parameters(query.include_item_types.as_slice());
         push_optional(&mut parameters, "parentId", query.parent_id.as_deref());
@@ -117,6 +159,11 @@ impl Jellyfin {
         self.http.get_with_query("Items", &parameters).await
     }
 
+    /// Searches Jellyfin media by title.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the request fails or the response is invalid.
     pub async fn search(&self, term: &str, limit: u32) -> Result<ItemQueryResult> {
         self.items(&ItemsQuery {
             search_term: Some(term.to_owned()),
@@ -128,6 +175,11 @@ impl Jellyfin {
         .await
     }
 
+    /// Fetches one Jellyfin item for a user.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the request fails or the response is invalid.
     pub async fn item(&self, item_id: &JellyfinItemId, user_id: &JellyfinUserId) -> Result<Item> {
         self.http
             .get_with_query(
@@ -137,6 +189,11 @@ impl Jellyfin {
             .await
     }
 
+    /// Fetches the latest media visible to a user.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the request fails or the response is invalid.
     pub async fn latest(&self, user_id: &JellyfinUserId, limit: u32) -> Result<Vec<Item>> {
         let mut parameters =
             common_item_parameters(&[ItemType::Movie, ItemType::Series, ItemType::Episode]);
@@ -145,6 +202,11 @@ impl Jellyfin {
         self.http.get_with_query("Items/Latest", &parameters).await
     }
 
+    /// Fetches the seasons belonging to a Jellyfin series.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the request fails or the response is invalid.
     pub async fn seasons(&self, series_id: &JellyfinItemId) -> Result<ItemQueryResult> {
         let parameters = common_item_parameters(&[]);
         self.http
@@ -152,6 +214,11 @@ impl Jellyfin {
             .await
     }
 
+    /// Fetches episodes belonging to a series, optionally within one season.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the request fails or the response is invalid.
     pub async fn episodes(
         &self,
         series_id: &JellyfinItemId,
@@ -168,6 +235,11 @@ impl Jellyfin {
             .await
     }
 
+    /// Negotiates playback information for an item and user.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the request fails or the response is invalid.
     pub async fn playback_info(
         &self,
         item_id: &JellyfinItemId,
@@ -181,6 +253,11 @@ impl Jellyfin {
             .await
     }
 
+    /// Builds a Jellyfin image URL from validated endpoint components.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the configured base URL cannot resolve the endpoint.
     pub fn image_url(
         &self,
         item_id: &JellyfinItemId,
@@ -211,6 +288,11 @@ impl Jellyfin {
         Ok(url)
     }
 
+    /// Builds a Jellyfin direct-play URL for a media source.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the configured base URL cannot resolve the endpoint.
     pub fn direct_play_url(
         &self,
         item_id: &JellyfinItemId,
@@ -234,14 +316,25 @@ impl Jellyfin {
         Ok(url)
     }
 
+    /// Resolves a Jellyfin path or absolute URL.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the value is not a valid permitted URL.
     pub fn resolve_url(&self, path_or_url: &str) -> Result<Url> {
         self.http.resolve_url(path_or_url)
     }
 
+    #[must_use]
     pub fn has_same_origin(&self, url: &Url) -> bool {
         self.http.has_same_origin(url)
     }
 
+    /// Fetches a media response, optionally for a byte range.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the URL is outside the configured origin or the request fails.
     pub async fn media_response(&self, url: Url, range: Option<&str>) -> Result<reqwest::Response> {
         self.http.get_response(url, range).await
     }

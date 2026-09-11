@@ -168,7 +168,7 @@ mod tests {
     }
     #[tokio::test]
     async fn cancelled_activation_releases_capacity_without_async_drop() {
-        let store = Arc::new(Store::new(Duration::from_secs(60), 1));
+        let store = Arc::new(Store::new(Duration::from_mins(1), 1));
         let (inserted, ready) = tokio::sync::oneshot::channel();
         let task_store = Arc::clone(&store);
         let activation = tokio::spawn(async move {

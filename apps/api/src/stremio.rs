@@ -10,6 +10,11 @@ pub struct Stremio {
 }
 
 impl Stremio {
+    /// Creates a client for a Stremio streaming server and optional Reel callback URL.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when either URL is invalid or the HTTP client cannot be created.
     pub fn new(base_url: &str, reel_url: Option<&str>) -> Result<Self, crate::playback::Error> {
         let parse = |value: &str| {
             Url::parse(value)
@@ -22,13 +27,19 @@ impl Stremio {
             reel_url: reel_url.map(parse).transpose()?,
             http: Client::builder()
                 .connect_timeout(Duration::from_secs(10))
-                .read_timeout(Duration::from_secs(60))
+                .read_timeout(Duration::from_mins(1))
                 .redirect(reqwest::redirect::Policy::none())
                 .build()
                 .map_err(crate::playback::Error::StremioTransport)?,
         })
     }
 
+    /// Builds the Stremio HLS playlist URL for a selected source.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when a URL cannot be constructed or required source
+    /// headers cannot be provided to Stremio.
     pub fn playlist_url(
         &self,
         session_id: &str,
@@ -58,11 +69,17 @@ impl Stremio {
         Ok(url)
     }
 
+    #[must_use]
     pub fn owns_resource(&self, url: &Url, session_id: &str) -> bool {
         url.origin() == self.base_url.origin()
             && url.path().starts_with(&format!("/hlsv2/{session_id}/"))
     }
 
+    /// Fetches one resource owned by the configured Stremio server.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the request fails or returns an unsuccessful status.
     pub async fn media_response(
         &self,
         url: Url,

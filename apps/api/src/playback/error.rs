@@ -60,54 +60,65 @@ pub enum Error {
     AioStreams(#[from] crate::aiostreams::Error),
 }
 
+type ResponseDetails = (StatusCode, &'static str, &'static str);
+
+const CAPACITY_EXCEEDED: ResponseDetails = (
+    StatusCode::SERVICE_UNAVAILABLE,
+    "playback_capacity_exceeded",
+    "Playback is busy. Try again shortly",
+);
+const NOT_LOCAL: ResponseDetails = (
+    StatusCode::NOT_FOUND,
+    "not_local",
+    "The requested media is not available in Jellyfin",
+);
+const NO_COMPATIBLE_SOURCE: ResponseDetails = (
+    StatusCode::UNPROCESSABLE_ENTITY,
+    "no_compatible_source",
+    "No compatible playback source is available",
+);
+const SESSION_NOT_FOUND: ResponseDetails = (
+    StatusCode::NOT_FOUND,
+    "playback_session_not_found",
+    "The playback session was not found or has expired",
+);
+const INVALID_RESOURCE: ResponseDetails = (
+    StatusCode::BAD_REQUEST,
+    "invalid_playback_resource",
+    "The playback resource is invalid",
+);
+const INVALID_POSITION: ResponseDetails = (
+    StatusCode::BAD_REQUEST,
+    "invalid_playback_position",
+    "The playback start position must be a finite non-negative number",
+);
+const DISCOVERY_NOT_FOUND: ResponseDetails = (
+    StatusCode::NOT_FOUND,
+    "source_discovery_not_found",
+    "The source list was not found or has expired",
+);
+const CANDIDATE_NOT_FOUND: ResponseDetails = (
+    StatusCode::BAD_REQUEST,
+    "playback_candidate_not_found",
+    "The selected playback source is invalid",
+);
+
 impl Error {
-    fn response_details(&self) -> (StatusCode, &'static str, &'static str) {
+    fn response_details(&self) -> ResponseDetails {
         match self {
             Self::InvalidRequest(rejection) => (
                 rejection.status(),
                 "invalid_playback_request",
                 "The playback request is invalid. Check the target, position, track selection, and capabilities",
             ),
-            Self::CapacityExceeded => (
-                StatusCode::SERVICE_UNAVAILABLE,
-                "playback_capacity_exceeded",
-                "Playback is busy. Try again shortly",
-            ),
-            Self::NotLocal => (
-                StatusCode::NOT_FOUND,
-                "not_local",
-                "The requested media is not available in Jellyfin",
-            ),
-            Self::NoCompatibleSource => (
-                StatusCode::UNPROCESSABLE_ENTITY,
-                "no_compatible_source",
-                "No compatible playback source is available",
-            ),
-            Self::SessionNotFound => (
-                StatusCode::NOT_FOUND,
-                "playback_session_not_found",
-                "The playback session was not found or has expired",
-            ),
-            Self::InvalidResource => (
-                StatusCode::BAD_REQUEST,
-                "invalid_playback_resource",
-                "The playback resource is invalid",
-            ),
-            Self::InvalidStartPosition => (
-                StatusCode::BAD_REQUEST,
-                "invalid_playback_position",
-                "The playback start position must be a finite non-negative number",
-            ),
-            Self::DiscoveryNotFound => (
-                StatusCode::NOT_FOUND,
-                "source_discovery_not_found",
-                "The source list was not found or has expired",
-            ),
-            Self::CandidateNotFound => (
-                StatusCode::BAD_REQUEST,
-                "playback_candidate_not_found",
-                "The selected playback source is invalid",
-            ),
+            Self::CapacityExceeded => CAPACITY_EXCEEDED,
+            Self::NotLocal => NOT_LOCAL,
+            Self::NoCompatibleSource => NO_COMPATIBLE_SOURCE,
+            Self::SessionNotFound => SESSION_NOT_FOUND,
+            Self::InvalidResource => INVALID_RESOURCE,
+            Self::InvalidStartPosition => INVALID_POSITION,
+            Self::DiscoveryNotFound => DISCOVERY_NOT_FOUND,
+            Self::CandidateNotFound => CANDIDATE_NOT_FOUND,
             Self::AioStreamsNotConfigured => (
                 StatusCode::SERVICE_UNAVAILABLE,
                 "aiostreams_not_configured",

@@ -20,7 +20,7 @@ use url::Host;
 
 use crate::integration::{Integration, JsonClient, parse_base_url};
 
-const MEDIA_TIMEOUT: Duration = Duration::from_secs(60);
+const MEDIA_TIMEOUT: Duration = Duration::from_mins(1);
 const MAX_REDIRECTS: usize = 5;
 const MAX_REQUEST_HEADERS: usize = 32;
 const MAX_HEADER_VALUE_LENGTH: usize = 8 * 1024;
@@ -33,6 +33,12 @@ pub struct AioStreams {
 }
 
 impl AioStreams {
+    /// Creates a client configured for one `AIOStreams` account.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the base URL or authentication header is invalid,
+    /// or when the underlying HTTP client cannot be created.
     pub fn new(
         base_url: impl AsRef<str>,
         uuid: impl AsRef<str>,
@@ -59,6 +65,12 @@ impl AioStreams {
         })
     }
 
+    /// Searches `AIOStreams` for direct streams matching `target`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the request fails, `AIOStreams` rejects it, or the
+    /// response does not contain a valid result payload.
     pub async fn search(&self, target: SearchTarget) -> Result<SearchOutcome> {
         let (content_type, id) = target.request_parameters();
         let envelope: SearchEnvelope = self
@@ -159,6 +171,12 @@ impl AioStreams {
         })
     }
 
+    /// Fetches a validated direct-media URL, following safe redirects.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an unsafe destination, a failed DNS or HTTP
+    /// request, or an invalid or excessive redirect chain.
     pub async fn media_response(
         &self,
         mut url: Url,
@@ -438,17 +456,20 @@ fn source_description(
 
 fn finite_u64(value: Option<f64>) -> Option<u64> {
     value
-        .filter(|value| value.is_finite() && *value >= 0.0 && *value <= u64::MAX as f64)
-        .map(|value| value as u64)
+        .filter(|value| value.is_finite() && *value >= 0.0)
+        .and_then(|value| value.trunc().to_string().parse().ok())
 }
 
 fn format_size(bytes: u64) -> String {
-    const GIB: f64 = 1024.0 * 1024.0 * 1024.0;
-    const MIB: f64 = 1024.0 * 1024.0;
-    if bytes >= 1024 * 1024 * 1024 {
-        format!("{:.1} GB", bytes as f64 / GIB)
+    const GIB: u128 = 1024 * 1024 * 1024;
+    const MIB: u128 = 1024 * 1024;
+    let bytes = u128::from(bytes);
+    if bytes >= GIB {
+        let tenths = (bytes * 10 + GIB / 2) / GIB;
+        format!("{}.{:01} GB", tenths / 10, tenths % 10)
     } else {
-        format!("{:.0} MB", bytes as f64 / MIB)
+        let megabytes = (bytes + MIB / 2) / MIB;
+        format!("{megabytes} MB")
     }
 }
 
@@ -464,11 +485,12 @@ fn compact_text(value: &str, max_characters: usize) -> String {
 
 fn is_local_hostname(host: &str) -> bool {
     let host = host.trim_end_matches('.').to_ascii_lowercase();
+    let mut labels = host.rsplit('.');
+    let last = labels.next();
+    let penultimate = labels.next();
     host == "localhost"
-        || host.ends_with(".localhost")
-        || host.ends_with(".local")
-        || host.ends_with(".internal")
-        || host.ends_with(".home.arpa")
+        || matches!(last, Some("localhost" | "local" | "internal"))
+        || matches!((penultimate, last), (Some("home"), Some("arpa")))
 }
 
 fn has_safe_literal_destination(url: &Url) -> bool {
@@ -485,8 +507,7 @@ fn is_public_ip(ip: IpAddr) -> bool {
         IpAddr::V4(ip) => is_public_ipv4(ip),
         IpAddr::V6(ip) => ip
             .to_ipv4_mapped()
-            .map(is_public_ipv4)
-            .unwrap_or_else(|| is_public_ipv6(ip)),
+            .map_or_else(|| is_public_ipv6(ip), is_public_ipv4),
     }
 }
 

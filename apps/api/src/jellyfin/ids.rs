@@ -6,6 +6,7 @@ use std::fmt;
 #[serde(transparent)]
 pub struct JellyfinItemId(String);
 impl JellyfinItemId {
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -30,6 +31,7 @@ impl fmt::Display for JellyfinItemId {
 #[serde(transparent)]
 pub struct JellyfinUserId(String);
 impl JellyfinUserId {
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -54,6 +56,7 @@ impl fmt::Display for JellyfinUserId {
 #[serde(transparent)]
 pub struct JellyfinMediaSourceId(String);
 impl JellyfinMediaSourceId {
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }

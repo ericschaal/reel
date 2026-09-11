@@ -20,7 +20,7 @@ use crate::{
 
 pub(super) const MAX_SUMMARIES: usize = 40;
 const CACHE_CAPACITY: usize = 512;
-const CACHE_TTL: Duration = Duration::from_secs(300);
+const CACHE_TTL: Duration = Duration::from_mins(5);
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 pub(super) struct TitleKey {
@@ -111,7 +111,9 @@ impl Catalogue {
         }
         let mut hasher = DefaultHasher::new();
         key.hash(&mut hasher);
-        let slot = (hasher.finish() % cache.refresh.len() as u64) as usize;
+        let slot_count = u64::try_from(cache.refresh.len()).expect("cache stripe count fits u64");
+        let slot = usize::try_from(hasher.finish() % slot_count)
+            .expect("hash slot is less than the cache stripe count");
         let _refresh = cache.refresh[slot].lock().await;
         if let Some(metadata) = cache.get(&key).await {
             return Ok(metadata);
@@ -183,10 +185,10 @@ impl Catalogue {
             match result {
                 Ok((index, Ok(metadata))) => match (&mut items[index], metadata.as_ref()) {
                     (super::CatalogueItem::Movie(card), TitleMetadata::Movie(movie)) => {
-                        card.runtime_minutes = movie.runtime
+                        card.runtime_minutes = movie.runtime;
                     }
                     (super::CatalogueItem::Series(card), TitleMetadata::Series(series)) => {
-                        card.number_of_seasons = series.number_of_seasons
+                        card.number_of_seasons = series.number_of_seasons;
                     }
                     _ => unreachable!("metadata kind matches card key"),
                 },
