@@ -358,13 +358,17 @@ test("track changes keep the mounted player and swap its descriptor in place", a
   assert.match(player, /canvasRef/);
   assert.match(player, /drawImage\(video/);
   assert.match(player, /requestVideoFrameCallback/);
-  assert.match(player, /isBuffering \|\| isSwitchingTracks/);
+  assert.match(player, /isBuffering \|\| isLoadingTrackMedia/);
   const trackSwap = player.slice(
     player.indexOf("const switchDescriptorTracks"),
     player.indexOf("const toggleSubtitles"),
   );
   assert.ok(
     trackSwap.indexOf("captureCurrentFrame()") <
+      trackSwap.indexOf("setDescriptor(nextDescriptor)"),
+  );
+  assert.ok(
+    trackSwap.indexOf("captureCurrentFrame()") >
       trackSwap.indexOf("await onSelectTracks"),
   );
   assert.doesNotMatch(player, /setHasFrozenFrame/);

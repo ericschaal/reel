@@ -273,23 +273,29 @@ test('leaving while activation is pending does not resume the detached video', a
   assert.equal(state(video).playCalls, playCalls);
 });
 
-test('subtitle switching shows the spinner without the central play overlay', async () => {
+test('subtitle switching keeps playing during activation and shows the spinner only for handoff', async () => {
   let finishActivation;
   const video = await mount({}, () => new Promise(resolve => { finishActivation = resolve; }));
   await canPlay(video);
   await click('Playback settings');
   await click('Subtitles');
   await click('French');
-  assert.ok(container.querySelector('[aria-label="Switching track"]'));
-  assert.ok(!container.querySelector('button.absolute[aria-label="Play"]'), 'The play overlay must not cover the spinner');
+  assert.equal(video.paused, false, 'Keep the current stream playing while track activation is pending');
+  assert.equal(container.querySelector('[aria-label="Switching track"]'), null);
+  assert.match(container.querySelector('[role="dialog"]').textContent, /Switching/);
   // Events queued by the old stream must not dismiss the switch indicator.
   await emit(video, 'seeked');
-  assert.ok(container.querySelector('[aria-label="Switching track"]'));
+  assert.match(container.querySelector('[role="dialog"]').textContent, /Switching/);
+  video.currentTime = 126;
   await act(async () => finishActivation({ ...descriptor, selectedSubtitleIndex: 4, mediaUrl: '/replacement' }));
+  assert.equal(video.paused, true);
+  assert.ok(container.querySelector('[aria-label="Switching track"]'));
+  assert.ok(!container.querySelector('button.absolute[aria-label="Play"]'), 'The play overlay must not cover the spinner');
   await emit(video, 'loadeddata');
   await emit(video, 'canplay');
   assert.ok(container.querySelector('[aria-label="Switching track"]'), 'Keep the spinner until the replacement frame is presented');
   await presentFrame(video);
+  assert.equal(video.currentTime, 126);
   assert.equal(container.querySelector('[aria-label="Switching track"]'), null);
 });
 

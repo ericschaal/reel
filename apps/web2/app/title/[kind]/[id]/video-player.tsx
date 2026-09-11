@@ -50,6 +50,7 @@ export function ReelVideoPlayer({
   const [playerError, setPlayerError] = useState<string | null>(null);
   const [trackSwitchError, setTrackSwitchError] = useState<string | null>(null);
   const [isSwitchingTracks, setIsSwitchingTracks] = useState(false);
+  const [isLoadingTrackMedia, setIsLoadingTrackMedia] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isBuffering, setIsBuffering] = useState(true);
   const [currentTime, setCurrentTime] = useState(0);
@@ -191,6 +192,7 @@ export function ReelVideoPlayer({
       trackSwitchPhaseRef.current = null;
       hideFrozenFrame();
       setIsSwitchingTracks(false);
+      setIsLoadingTrackMedia(false);
     };
     if (frameCallbackRef.current !== null) {
       video.cancelVideoFrameCallback(frameCallbackRef.current);
@@ -211,21 +213,23 @@ export function ReelVideoPlayer({
     async (selection: PlaybackTrackSelection) => {
       const video = videoRef.current;
       if (!video || isSwitchingTracks) return;
-      const position = video.currentTime;
-      const shouldResume = !video.paused;
+      const activationPosition = video.currentTime;
       trackSwitchPhaseRef.current = "activating";
       if (frameCallbackRef.current !== null) {
         video.cancelVideoFrameCallback(frameCallbackRef.current);
         frameCallbackRef.current = null;
       }
-      captureCurrentFrame();
-      video.pause();
       setIsSwitchingTracks(true);
       setTrackSwitchError(null);
       try {
-        const nextDescriptor = await onSelectTracks(position, selection);
+        const nextDescriptor = await onSelectTracks(activationPosition, selection);
         if (videoRef.current !== video) return;
-        resumePositionRef.current = position;
+        const handoffPosition = video.currentTime;
+        const shouldResume = !video.paused;
+        captureCurrentFrame();
+        video.pause();
+        setIsLoadingTrackMedia(true);
+        resumePositionRef.current = handoffPosition;
         resumeAfterSwitchRef.current = shouldResume;
         setDescriptor(nextDescriptor);
         setDuration(nextDescriptor.durationSeconds ?? duration);
@@ -251,7 +255,7 @@ export function ReelVideoPlayer({
         trackSwitchPhaseRef.current = null;
         hideFrozenFrame();
         setIsSwitchingTracks(false);
-        if (shouldResume) void video.play().catch(() => setControlsVisible(true));
+        setIsLoadingTrackMedia(false);
         setTrackSwitchError(
           reason instanceof Error
             ? reason.message
@@ -661,6 +665,7 @@ export function ReelVideoPlayer({
         onEnded={() => setIsPlaying(false)}
         onError={() => {
           setIsSwitchingTracks(false);
+          setIsLoadingTrackMedia(false);
           setPlayerError(`The browser could not play this ${sourceName} stream.`);
         }}
       />
@@ -671,11 +676,11 @@ export function ReelVideoPlayer({
         aria-hidden="true"
       />
 
-      {(isBuffering || isSwitchingTracks) && !playerError ? (
+      {(isBuffering || isLoadingTrackMedia) && !playerError ? (
         <div
           className="pointer-events-none absolute inset-0 grid place-items-center"
           role="status"
-          aria-label={isSwitchingTracks ? "Switching track" : "Buffering"}
+          aria-label={isLoadingTrackMedia ? "Switching track" : "Buffering"}
         >
           <span className="size-14 animate-spin rounded-full border-2 border-white/25 border-t-accent" />
         </div>
