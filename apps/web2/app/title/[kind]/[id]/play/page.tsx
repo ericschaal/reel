@@ -27,8 +27,11 @@ function playbackSelection(query: TitleQuery): SourceSelection {
   if (!source) return { kind: "auto" };
   if (source === "jellyfin") return { kind: "jellyfin" };
   const discoveryId = queryValue(query, "discovery");
-  const candidateId = queryValue(query, "candidate");
   const opaqueId = /^[A-Za-z0-9_-]{32}$/;
+  if (source === "auto" && discoveryId && opaqueId.test(discoveryId)) {
+    return { kind: "auto", discoveryId };
+  }
+  const candidateId = queryValue(query, "candidate");
   if (
     source !== "aioStreams" ||
     !discoveryId ||

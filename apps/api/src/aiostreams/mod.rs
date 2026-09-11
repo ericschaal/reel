@@ -60,14 +60,23 @@ impl AioStreams {
 
     pub async fn search(&self, target: SearchTarget) -> Result<SearchOutcome> {
         let (content_type, id) = match target {
-            SearchTarget::Movie { tmdb_id } => ("movie", format!("tmdb:{tmdb_id}")),
+            SearchTarget::Movie { tmdb_id, imdb_id } => (
+                "movie",
+                imdb_id
+                    .filter(|id| is_imdb_title_id(id))
+                    .unwrap_or_else(|| format!("tmdb:{tmdb_id}")),
+            ),
             SearchTarget::Episode {
                 series_tmdb_id,
+                imdb_id,
                 season_number,
                 episode_number,
             } => (
                 "series",
-                format!("tmdb:{series_tmdb_id}:{season_number}:{episode_number}"),
+                imdb_id.filter(|id| is_imdb_title_id(id)).map_or_else(
+                    || format!("tmdb:{series_tmdb_id}:{season_number}:{episode_number}"),
+                    |id| format!("{id}:{season_number}:{episode_number}"),
+                ),
             ),
         };
         let envelope: SearchEnvelope = self
@@ -121,6 +130,10 @@ impl AioStreams {
                 .quality
                 .map(|value| compact_text(&value, 48))
                 .filter(|value| !value.is_empty());
+            let video_codec = parsed
+                .encode
+                .map(|value| compact_text(&value, 24))
+                .filter(|value| !value.is_empty());
             let addon = result
                 .addon
                 .map(|value| compact_text(&value, 80))
@@ -152,6 +165,7 @@ impl AioStreams {
                 resolution,
                 quality,
                 container,
+                video_codec,
                 size_bytes: finite_u64(result.size),
                 web_ready: result.not_web_ready != Some(true),
                 duration_seconds: finite_u64(result.duration),
@@ -170,6 +184,10 @@ impl AioStreams {
         request_headers: &HeaderMap,
     ) -> Result<Response> {
         for redirect_count in 0..=MAX_REDIRECTS {
+            // Provider failures can redirect to an HTTP 200 error video.
+            if url.host_str() == Some("slate.elfhosted.com") {
+                return Err(Error::ProviderErrorVideo);
+            }
             let client = self.media_client(&url).await?;
             let mut headers = request_headers.clone();
             headers.remove(RANGE);
@@ -214,7 +232,7 @@ impl AioStreams {
         let mut builder = HttpClient::builder()
             .redirect(Policy::none())
             .connect_timeout(Duration::from_secs(10))
-            .timeout(MEDIA_TIMEOUT);
+            .read_timeout(MEDIA_TIMEOUT);
         if !self.has_same_origin(url) {
             if is_local_hostname(host) {
                 return Err(Error::UnsafeMediaDestination);
@@ -235,16 +253,24 @@ impl AioStreams {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub enum SearchTarget {
     Movie {
         tmdb_id: i64,
+        imdb_id: Option<String>,
     },
     Episode {
         series_tmdb_id: i64,
+        imdb_id: Option<String>,
         season_number: i32,
         episode_number: i32,
     },
+}
+
+fn is_imdb_title_id(value: &str) -> bool {
+    value.strip_prefix("tt").is_some_and(|digits| {
+        !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit())
+    })
 }
 
 #[derive(Clone)]
@@ -259,6 +285,7 @@ pub struct DirectStream {
     pub resolution: Option<String>,
     pub quality: Option<String>,
     pub container: Option<String>,
+    pub video_codec: Option<String>,
     pub size_bytes: Option<u64>,
     pub web_ready: bool,
     pub duration_seconds: Option<u64>,
@@ -309,6 +336,7 @@ struct SearchResult {
 struct ParsedFile {
     container: Option<String>,
     extension: Option<String>,
+    encode: Option<String>,
     resolution: Option<String>,
     quality: Option<String>,
 }
@@ -510,6 +538,8 @@ pub enum Error {
     InvalidRedirect,
     #[error("the direct media response redirected too many times")]
     TooManyRedirects,
+    #[error("the provider returned an error video instead of the selected media")]
+    ProviderErrorVideo,
 }
 
 pub type Result<T> = std::result::Result<T, Error>;

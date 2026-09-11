@@ -92,6 +92,7 @@ export function ReelVideoPlayer({
   const context = episode
     ? `${media.title} · S${episode.seasonNumber} E${episode.episodeNumber}`
     : null;
+  const sourceName = descriptor.source === "aioStreams" ? "AIOStreams" : "Jellyfin";
 
   const revealControls = useCallback((keepOpen = false) => {
     setControlsVisible(true);
@@ -419,7 +420,7 @@ export function ReelVideoPlayer({
           });
           hls.on(Hls.Events.ERROR, (_event, data) => {
             if (data.fatal) {
-              setPlayerError("The Jellyfin stream stopped unexpectedly.");
+              setPlayerError(`${sourceName} playback stopped unexpectedly.`);
             }
           });
           hls.loadSource(descriptor.mediaUrl);
@@ -456,6 +457,7 @@ export function ReelVideoPlayer({
     descriptor.selectedSubtitleIndex,
     descriptorAudioTracks.length,
     descriptorSubtitleTracks,
+    sourceName,
   ]);
 
   useEffect(() => {
@@ -659,7 +661,7 @@ export function ReelVideoPlayer({
         onEnded={() => setIsPlaying(false)}
         onError={() => {
           setIsSwitchingTracks(false);
-          setPlayerError("The browser could not play this Jellyfin stream.");
+          setPlayerError(`The browser could not play this ${sourceName} stream.`);
         }}
       />
 

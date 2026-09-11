@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import {
@@ -27,7 +27,7 @@ import {
   DownloadedStatus,
   PlaybackHint,
   playbackSourcesQuery,
-  SourcePickerDialog,
+  SourcePickerView,
   type PlaybackCandidate,
   type SourceSelection,
   WatchNowControl,
@@ -41,6 +41,7 @@ export function TitleDetail({
   progress: PlaybackProgress | null;
 }) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const media: TitleMedia = { ...title, progress: initialProgress };
   const series = title.kind === "series" ? title : null;
   const initialSeason = series?.initialSeason ?? null;
@@ -93,21 +94,38 @@ export function TitleDetail({
     setSeasonNumber(nextSeasonNumber);
   }
 
-  function play(
+  async function play(
     resumeSeconds?: number,
     episode = nextEpisode ?? undefined,
     sourceSelection: SourceSelection = { kind: "auto" },
   ) {
+    let resolvedSelection = sourceSelection;
+    if (sourceSelection.kind === "auto") {
+      try {
+        const discovery = await queryClient.fetchQuery(
+          playbackSourcesQuery(media, episode),
+        );
+        resolvedSelection = {
+          kind: "auto",
+          discoveryId: discovery.discoveryId,
+        };
+      } catch {
+        // Direct play still has a fresh-search fallback if discovery failed.
+      }
+    }
     const href = new URL(
       playbackHref(media, episode, resumeSeconds),
       "http://reel.local",
     );
-    if (sourceSelection.kind === "jellyfin") {
+    if (resolvedSelection.kind === "jellyfin") {
       href.searchParams.set("source", "jellyfin");
-    } else if (sourceSelection.kind === "aioStreams") {
+    } else if (resolvedSelection.kind === "aioStreams") {
       href.searchParams.set("source", "aioStreams");
-      href.searchParams.set("discovery", sourceSelection.discoveryId);
-      href.searchParams.set("candidate", sourceSelection.candidateId);
+      href.searchParams.set("discovery", resolvedSelection.discoveryId);
+      href.searchParams.set("candidate", resolvedSelection.candidateId);
+    } else if (resolvedSelection.discoveryId) {
+      href.searchParams.set("source", "auto");
+      href.searchParams.set("discovery", resolvedSelection.discoveryId);
     }
     router.push(`${href.pathname}${href.search}`, { scroll: false });
   }
@@ -117,6 +135,15 @@ export function TitleDetail({
     episode = nextEpisode ?? undefined,
   ) {
     setSourcePicker({ resumeSeconds, episode });
+  }
+
+  function closeSources() {
+    setSourcePicker(null);
+    window.requestAnimationFrame(() => {
+      document
+        .querySelector<HTMLButtonElement>("[data-source-picker-trigger]")
+        ?.focus();
+    });
   }
 
   function chooseSource(source: PlaybackCandidate) {
@@ -132,7 +159,7 @@ export function TitleDetail({
           };
     const { resumeSeconds, episode } = sourcePicker;
     setSourcePicker(null);
-    play(resumeSeconds, episode, selection);
+    void play(resumeSeconds, episode, selection);
   }
 
   function openDownload() {
@@ -158,7 +185,11 @@ export function TitleDetail({
 
   const sourcePickerState = sourcePicker
     ? sourceDiscoveryQuery.data
-      ? { status: "ready" as const, discovery: sourceDiscoveryQuery.data }
+      ? {
+          status: "ready" as const,
+          discovery: sourceDiscoveryQuery.data,
+          refreshing: sourceDiscoveryQuery.isFetching,
+        }
       : sourceDiscoveryQuery.isError
         ? {
             status: "error" as const,
@@ -183,10 +214,22 @@ export function TitleDetail({
     );
   }
 
+  if (sourcePickerState && sourcePicker) {
+    return (
+      <SourcePickerView
+        state={sourcePickerState}
+        media={media}
+        episode={sourcePicker.episode}
+        onClose={closeSources}
+        onRetry={() => void sourceDiscoveryQuery.refetch()}
+        onChoose={chooseSource}
+      />
+    );
+  }
+
   if (episodeDialog) {
     return (
-      <>
-        <EpisodeDetailView
+      <EpisodeDetailView
           media={media}
           episode={episodeDialog}
           series={series}
@@ -198,7 +241,7 @@ export function TitleDetail({
           onBack={closeEpisode}
           onSelectSeason={selectSeason}
           onOpenEpisode={openEpisode}
-          onPlay={(resumeSeconds) => play(resumeSeconds, episodeDialog)}
+          onPlay={(resumeSeconds) => void play(resumeSeconds, episodeDialog)}
           onOpenSources={(resumeSeconds) =>
             openSources(resumeSeconds, episodeDialog)
           }
@@ -206,16 +249,7 @@ export function TitleDetail({
           onDownload={() =>
             setDownloadScope({ kind: "episode", episode: episodeDialog })
           }
-        />
-        {sourcePickerState ? (
-          <SourcePickerDialog
-            state={sourcePickerState}
-            onClose={() => setSourcePicker(null)}
-            onRetry={() => void sourceDiscoveryQuery.refetch()}
-            onChoose={chooseSource}
-          />
-        ) : null}
-      </>
+      />
     );
   }
 
@@ -285,7 +319,7 @@ export function TitleDetail({
             <div className="mt-5 flex flex-wrap items-stretch gap-3">
               <WatchNowControl
                 progress={progress}
-                onPlay={(resumeSeconds) => play(resumeSeconds)}
+                onPlay={(resumeSeconds) => void play(resumeSeconds)}
                 onOpenSources={(resumeSeconds) => openSources(resumeSeconds)}
                 sourcesOpen={sourcePicker != null}
                 disabled={!canDiscover}
@@ -320,14 +354,6 @@ export function TitleDetail({
           />
         ) : null}
       </main>
-      {sourcePickerState ? (
-        <SourcePickerDialog
-          state={sourcePickerState}
-          onClose={() => setSourcePicker(null)}
-          onRetry={() => void sourceDiscoveryQuery.refetch()}
-          onChoose={chooseSource}
-        />
-      ) : null}
     </div>
   );
 }

@@ -217,6 +217,7 @@ test("movies and exact episodes activate normalized playback through the existin
   assert.match(playback, /fetch\("\/v1\/playback\/activate"/);
   assert.match(playback, /fetch\("\/v1\/playback\/sources"/);
   assert.match(playback, /seriesTmdbId: media\.tmdbId/);
+  assert.match(playback, /imdbId: media\.imdbId/);
   assert.match(playback, /episodeNumber: episode\.episodeNumber/);
   assert.match(playbackRoute, /activatePlayback/);
   assert.match(titleDetail, /playbackHref\(media, episode, resumeSeconds\)/);
@@ -253,6 +254,52 @@ test("source discovery starts on detail open and reuses the query cache", async 
   assert.match(titleDetail, /enabled: canDiscover/);
   assert.match(titleDetail, /const discoveryEpisode = episodeDialog \?\? nextEpisode/);
   assert.match(titleDetail, /const discovery = sourceDiscoveryQuery\.data/);
+  assert.match(titleDetail, /queryClient\.fetchQuery\(/);
+  assert.match(titleDetail, /discoveryId: discovery\.discoveryId/);
+  assert.match(titleDetail, /href\.searchParams\.set\("source", "auto"\)/);
+});
+
+test("source selection is a full-screen, remote-friendly Reel view", async () => {
+  const [playback, titleDetail, playPage] = await Promise.all([
+    readFile(
+      new URL("../app/title/[kind]/[id]/playback.tsx", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../app/title/[kind]/[id]/title-detail.tsx", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../app/title/[kind]/[id]/play/page.tsx", import.meta.url),
+      "utf8",
+    ),
+  ]);
+
+  const sourceView = playback.slice(
+    playback.indexOf("export function SourcePickerView"),
+    playback.indexOf("export function formatRemaining"),
+  );
+  assert.match(sourceView, /<FullScreenShell/);
+  assert.doesNotMatch(sourceView, /<Dialog/);
+  assert.match(sourceView, /data-source-option/);
+  assert.match(sourceView, /data-keyboard-navigation="managed"/);
+  assert.match(sourceView, /ArrowDown/);
+  assert.match(sourceView, /ArrowUp/);
+  assert.match(sourceView, /event\.key === "Escape"/);
+  assert.match(playback, /data-source-picker-trigger/);
+  assert.match(sourceView, /autoFocus=\{isDefault\}/);
+  assert.match(sourceView, /Streaming providers need attention/);
+  assert.match(sourceView, /No browser-compatible streams/);
+  assert.match(sourceView, /fixed inset-0 z-50 h-dvh overflow-hidden/);
+  assert.match(sourceView, /overflow-y-auto overscroll-contain/);
+  assert.match(sourceView, /scrollIntoView\(\{ block: "nearest" \}\)/);
+  assert.match(sourceView, /min-h-16/);
+  assert.doesNotMatch(sourceView, /sm:min-h-24/);
+  assert.match(sourceView, /pb-\[max\(2\.5rem,env\(safe-area-inset-bottom\)\)\]/);
+  assert.match(titleDetail, /if \(sourcePickerState && sourcePicker\)/);
+  assert.match(titleDetail, /requestAnimationFrame/);
+  assert.match(playPage, /source === "auto"/);
+  assert.match(playPage, /return \{ kind: "auto", discoveryId \}/);
 });
 
 test("custom player exposes complete playback and track controls", async () => {

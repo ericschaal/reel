@@ -5,6 +5,7 @@ pub mod jellyfin;
 pub mod media;
 pub mod playback;
 pub mod seerr;
+pub mod stremio;
 
 use axum::{Json, Router, routing::get};
 use catalogue::Catalogue;

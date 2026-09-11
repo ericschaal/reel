@@ -17,7 +17,7 @@ async fn main() -> Result<(), io::Error> {
         required_env("JELLYFIN_API_KEY")?,
     )
     .map_err(io::Error::other)?;
-    let playback = Playback::new(jellyfin.clone(), required_env("JELLYFIN_USERNAME")?)
+    let mut playback = Playback::new(jellyfin.clone(), required_env("JELLYFIN_USERNAME")?)
         .with_aiostreams(
             AioStreams::new(
                 required_env("AIOSTREAMS_BASE_URL")?,
@@ -26,6 +26,15 @@ async fn main() -> Result<(), io::Error> {
             )
             .map_err(io::Error::other)?,
         );
+    if let Ok(url) = std::env::var("STREMIO_BASE_URL") {
+        playback = playback.with_stremio(
+            reel_api::stremio::Stremio::new(
+                &url,
+                std::env::var("REEL_STREAMING_BASE_URL").ok().as_deref(),
+            )
+            .map_err(io::Error::other)?,
+        );
+    }
     let catalogue = Catalogue::new(
         Seerr::new(
             required_env("SEERR_BASE_URL")?,

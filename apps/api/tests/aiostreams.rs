@@ -18,10 +18,13 @@ fn client() -> AioStreams {
 
 #[tokio::test]
 #[ignore = "requires apps/api/.env.local and performs a live direct-media range probe"]
-async fn discovers_direct_movies_and_accepts_exact_episode_queries_on_the_real_instance() {
+async fn discovers_direct_movies_and_exact_episodes_on_the_real_instance() {
     let aiostreams = client();
     let movie = aiostreams
-        .search(SearchTarget::Movie { tmdb_id: 550 })
+        .search(SearchTarget::Movie {
+            tmdb_id: 550,
+            imdb_id: Some("tt0137523".into()),
+        })
         .await
         .expect("search the configured AIOStreams instance for a movie");
     assert!(
@@ -36,7 +39,8 @@ async fn discovers_direct_movies_and_accepts_exact_episode_queries_on_the_real_i
 
     let episode = aiostreams
         .search(SearchTarget::Episode {
-            series_tmdb_id: 1399,
+            series_tmdb_id: 5920,
+            imdb_id: Some("tt1196946".into()),
             season_number: 1,
             episode_number: 1,
         })
@@ -47,6 +51,10 @@ async fn discovers_direct_movies_and_accepts_exact_episode_queries_on_the_real_i
             .streams
             .iter()
             .all(|stream| matches!(stream.url.scheme(), "http" | "https"))
+    );
+    assert!(
+        !episode.streams.is_empty(),
+        "the reported episode should return direct sources through its IMDb identifier"
     );
     let first = &movie.streams[0];
     let media = client()
