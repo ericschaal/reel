@@ -17,7 +17,8 @@ rand.workspace = true
 url.workspace = true
 percent-encoding.workspace = true
 tracing.workspace = true
-tracing-subscriber.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+tower-http = { workspace = true, features = ["trace"] }
 base64.workspace = true
 dotenvy.workspace = true
 thiserror.workspace = true

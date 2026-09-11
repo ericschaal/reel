@@ -13,13 +13,21 @@ use axum::{
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use reqwest::Url;
+use tracing::{debug, info};
 
 pub(super) async fn activate(
     State(playback): State<Playback>,
     request: Result<Json<ActivationRequest>, JsonRejection>,
 ) -> Result<Json<PlaybackDescriptor>, Error> {
     let Json(request) = request.map_err(Error::InvalidRequest)?;
-    playback.activate(request).await.map(Json)
+    let descriptor = playback.activate(request).await?;
+    info!(
+        session.id = %descriptor.session_id,
+        playback.source = ?descriptor.source,
+        playback.delivery = ?descriptor.delivery,
+        "playback session activated"
+    );
+    Ok(Json(descriptor))
 }
 
 pub(super) async fn discover(
@@ -27,7 +35,14 @@ pub(super) async fn discover(
     request: Result<Json<DiscoveryRequest>, JsonRejection>,
 ) -> Result<Json<DiscoveryResponse>, Error> {
     let Json(request) = request.map_err(Error::InvalidRequest)?;
-    playback.discover(request).await.map(Json)
+    let response = playback.discover(request).await?;
+    info!(
+        discovery.id = %response.discovery_id,
+        source_count = response.sources.len(),
+        issue_count = response.issues.len(),
+        "playback sources discovered"
+    );
+    Ok(Json(response))
 }
 
 pub(super) async fn media(
@@ -135,6 +150,13 @@ async fn proxy(
             .get(header::CONTENT_TYPE)
             .and_then(|value| value.to_str().ok())
             .is_some_and(|value| value.contains("mpegurl"));
+    debug!(
+        upstream = ?provider,
+        upstream_status = status.as_u16(),
+        range_requested = range.is_some(),
+        is_playlist,
+        "upstream media response received"
+    );
 
     if is_playlist && status.is_success() {
         let text = upstream

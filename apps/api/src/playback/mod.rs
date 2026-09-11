@@ -79,16 +79,18 @@ impl Playback {
     }
 
     pub fn router(self) -> Router {
-        Router::new()
-            .route("/v1/playback/sources", post(discover))
-            .route("/v1/playback/activate", post(activate))
-            .route("/v1/playback/sessions/{session_id}/media", get(media))
-            .route("/v1/playback/sessions/{session_id}/input", get(input))
-            .route(
-                "/v1/playback/sessions/{session_id}/resources/{resource}",
-                get(resource),
-            )
-            .with_state(self)
+        crate::observability::trace_http(
+            Router::new()
+                .route("/v1/playback/sources", post(discover))
+                .route("/v1/playback/activate", post(activate))
+                .route("/v1/playback/sessions/{session_id}/media", get(media))
+                .route("/v1/playback/sessions/{session_id}/input", get(input))
+                .route(
+                    "/v1/playback/sessions/{session_id}/resources/{resource}",
+                    get(resource),
+                )
+                .with_state(self),
+        )
     }
 
     async fn activate(&self, request: ActivationRequest) -> Result<PlaybackDescriptor, Error> {
@@ -96,7 +98,13 @@ impl Playback {
             PlaybackSelection::Auto { discovery_id } => {
                 match self.activate_jellyfin(&request).await {
                     Ok(descriptor) => Ok(descriptor),
-                    Err(Error::NotLocal | Error::NoCompatibleSource) => {
+                    Err(error @ (Error::NotLocal | Error::NoCompatibleSource)) => {
+                        let reason = if matches!(error, Error::NotLocal) {
+                            "not_local"
+                        } else {
+                            "no_compatible_source"
+                        };
+                        tracing::debug!(reason, "falling back to remote playback");
                         if let Some(discovery_id) = discovery_id {
                             self.activate_first_discovered_aiostreams(
                                 &request.target,

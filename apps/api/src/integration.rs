@@ -1,11 +1,12 @@
-use std::fmt;
+use std::{fmt, time::Instant};
 
 use reqwest::{
-    Client as HttpClient, Response, StatusCode, Url,
+    Client as HttpClient, RequestBuilder, Response, StatusCode, Url,
     header::{HeaderMap, InvalidHeaderValue, RANGE},
 };
 use serde::{Serialize, de::DeserializeOwned};
 use thiserror::Error as ThisError;
+use tracing::{Instrument as _, Span, debug, debug_span, field};
 
 const MAX_ERROR_BODY_LENGTH: usize = 8 * 1024;
 
@@ -131,23 +132,14 @@ impl JsonClient {
         Q: Serialize + ?Sized,
         T: DeserializeOwned,
     {
-        let response = self
-            .http
-            .get(self.endpoint(path)?)
-            .query(query)
-            .send()
-            .await
-            .map_err(|source| self.transport_error(source))?;
+        let request = self.http.get(self.endpoint(path)?).query(query);
+        let response = self.send("GET", path, request).await?;
         self.decode_json(response).await
     }
 
     pub(crate) async fn get_url<T: DeserializeOwned>(&self, url: Url) -> Result<T> {
-        let response = self
-            .http
-            .get(url)
-            .send()
-            .await
-            .map_err(|source| self.transport_error(source))?;
+        let path = url.path().to_owned();
+        let response = self.send("GET", &path, self.http.get(url)).await?;
         self.decode_json(response).await
     }
 
@@ -156,13 +148,8 @@ impl JsonClient {
         B: Serialize + ?Sized,
         T: DeserializeOwned,
     {
-        let response = self
-            .http
-            .post(self.endpoint(path)?)
-            .json(body)
-            .send()
-            .await
-            .map_err(|source| self.transport_error(source))?;
+        let request = self.http.post(self.endpoint(path)?).json(body);
+        let response = self.send("POST", path, request).await?;
         self.decode_json(response).await
     }
 
@@ -196,14 +183,49 @@ impl JsonClient {
     }
 
     pub(crate) async fn get_response(&self, url: Url, range: Option<&str>) -> Result<Response> {
+        let path = url.path().to_owned();
         let mut request = self.http.get(url);
         if let Some(range) = range {
             request = request.header(RANGE, range);
         }
-        request
-            .send()
-            .await
-            .map_err(|source| self.transport_error(source))
+        self.send("GET", &path, request).await
+    }
+
+    async fn send(
+        &self,
+        method: &'static str,
+        path: &str,
+        request: RequestBuilder,
+    ) -> Result<Response> {
+        let span = debug_span!(
+            "upstream.request",
+            integration = %self.integration,
+            http.request.method = method,
+            url.path = path,
+            http.response.status_code = field::Empty,
+        );
+        async {
+            let started = Instant::now();
+            let response = request.send().await;
+            let duration_ms = started.elapsed().as_secs_f64() * 1_000.0;
+            match response {
+                Ok(response) => {
+                    Span::current().record("http.response.status_code", response.status().as_u16());
+                    debug!(duration_ms, "upstream response received");
+                    Ok(response)
+                }
+                Err(source) => {
+                    debug!(
+                        duration_ms,
+                        outcome = "transport_error",
+                        "upstream request ended"
+                    );
+                    Err(self.transport_error(source))
+                }
+            }
+        }
+        .instrument(span)
+        .await
     }
 
     async fn decode_json<T: DeserializeOwned>(&self, response: Response) -> Result<T> {

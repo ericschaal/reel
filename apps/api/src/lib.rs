@@ -3,6 +3,7 @@ pub mod catalogue;
 pub mod integration;
 pub mod jellyfin;
 pub mod media;
+mod observability;
 pub mod playback;
 pub mod seerr;
 pub mod stremio;
@@ -12,9 +13,11 @@ use catalogue::Catalogue;
 use serde::Serialize;
 
 pub fn app(catalogue: Catalogue) -> Router {
-    Router::new()
-        .route("/healthz", get(health))
-        .merge(catalogue::router(catalogue))
+    observability::trace_http(
+        Router::new()
+            .route("/healthz", get(health))
+            .merge(catalogue::router(catalogue)),
+    )
 }
 
 async fn health() -> Json<Health> {

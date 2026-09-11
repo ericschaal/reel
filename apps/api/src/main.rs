@@ -4,13 +4,18 @@ use reel_api::{
     aiostreams::AioStreams, app, catalogue::Catalogue, jellyfin::Jellyfin, playback::Playback,
     seerr::Seerr,
 };
+use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> Result<(), io::Error> {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     dotenvy::from_path(manifest_dir.join(".env.local")).ok();
     dotenvy::from_path(manifest_dir.join(".env")).ok();
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
+        .init();
 
     let jellyfin = Jellyfin::new(
         required_env("JELLYFIN_BASE_URL")?,
@@ -45,6 +50,7 @@ async fn main() -> Result<(), io::Error> {
     );
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
+    tracing::info!(listen.address = %listener.local_addr()?, "API server listening");
 
     axum::serve(listener, app(catalogue).merge(playback.router())).await
 }
