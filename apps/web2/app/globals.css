@@ -25,7 +25,15 @@
   summary {
     cursor: pointer;
   }
-  :where(a, button, input):focus-visible {
+  :root:not([data-input-modality="pointer"]) :where(
+    a,
+    button,
+    input,
+    select,
+    textarea,
+    summary,
+    [tabindex]:not([tabindex="-1"])
+  ):focus-visible {
     outline: 2px solid var(--color-accent);
     outline-offset: 4px;
   }
@@ -106,6 +114,64 @@
   .player-range:focus-visible {
     outline: 2px solid var(--color-accent);
     outline-offset: 3px;
+  }
+}
+
+@layer utilities {
+  /* Card controls use one borderless visual state for pointer hover and
+     keyboard focus. Scale, title color, and ambient art indicate focus. */
+  .interactive-card {
+    --interactive-card-scale: 1.035;
+    transition-property: transform;
+    transition-duration: 300ms;
+    transition-timing-function: ease-out;
+  }
+
+  .interactive-card:focus-visible {
+    outline: none;
+  }
+
+  .interactive-card-title {
+    transition: color 200ms ease-out;
+  }
+
+  :where(
+    :root:not([data-input-modality]) .interactive-card:hover,
+    :root:not([data-input-modality]) .interactive-card:focus-visible,
+    :root[data-input-modality="pointer"] .interactive-card:hover,
+    :root[data-input-modality="keyboard"] .interactive-card:focus-visible
+  ) {
+    z-index: 10;
+  }
+
+  :where(
+    :root:not([data-input-modality]) .interactive-card:hover,
+    :root:not([data-input-modality]) .interactive-card:focus-visible,
+    :root[data-input-modality="pointer"] .interactive-card:hover,
+    :root[data-input-modality="keyboard"] .interactive-card:focus-visible
+  )
+    .interactive-card-title {
+    color: var(--color-accent);
+  }
+
+  :where(
+    :root:not([data-input-modality]) .interactive-card:hover,
+    :root:not([data-input-modality]) .interactive-card:focus-visible,
+    :root[data-input-modality="pointer"] .interactive-card:hover,
+    :root[data-input-modality="keyboard"] .interactive-card:focus-visible
+  ).interactive-card-shadow {
+    box-shadow: 0 18px 44px rgb(0 0 0 / 0.4);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    :where(
+      :root:not([data-input-modality]) .interactive-card:hover,
+      :root:not([data-input-modality]) .interactive-card:focus-visible,
+      :root[data-input-modality="pointer"] .interactive-card:hover,
+      :root[data-input-modality="keyboard"] .interactive-card:focus-visible
+    ) {
+      transform: translateY(-0.25rem) scale(var(--interactive-card-scale));
+    }
   }
 }
 

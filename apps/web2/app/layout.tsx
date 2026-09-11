@@ -13,6 +13,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body>
         <a
           href="#main-content"
+          data-keyboard-navigation-ignore="true"
           className="fixed top-3 left-3 z-50 -translate-y-24 rounded-lg bg-accent px-4 py-3 font-semibold text-background focus:translate-y-0"
         >
           Skip to content

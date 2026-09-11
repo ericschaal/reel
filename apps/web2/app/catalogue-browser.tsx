@@ -157,6 +157,7 @@ function CatalogueRail({
         ) : null}
       </div>
       <div
+        data-keyboard-rail="true"
         className={
           rail.layout === "backdrop"
             ? `${rowClass} auto-cols-[82%] sm:auto-cols-[340px] lg:auto-cols-[420px]`

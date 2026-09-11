@@ -8,7 +8,7 @@ import {
   type CSSProperties,
   type MouseEvent,
 } from "react";
-import type { TitleMedia } from "../../../catalogue";
+import type { TitleMedia } from "@/app/catalogue";
 import type {
   ActivePlayback,
   PlaybackDescriptor,
@@ -605,6 +605,7 @@ export function ReelVideoPlayer({
   return (
     <div
       ref={playerRef}
+      data-keyboard-navigation="managed"
       className={`group relative h-dvh w-full overflow-hidden bg-black text-white ${controlsVisible || menu ? "cursor-default" : "cursor-none"}`}
       onMouseMove={() => revealControls(Boolean(menu))}
       onMouseLeave={() => {

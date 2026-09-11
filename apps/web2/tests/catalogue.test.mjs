@@ -42,6 +42,28 @@ test("media facts and rating occupy separate artwork zones", async () => {
   assert.match(source, /variant="overlay"/);
 });
 
+test("catalogue cards share one hover and keyboard-focus treatment", async () => {
+  const [cards, styles] = await Promise.all([
+    readFile(new URL("../app/media-card.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(cards, /interactive-card/);
+  assert.match(cards, /interactive-card-title/);
+  assert.match(styles, /data-input-modality="pointer"/);
+  assert.match(styles, /data-input-modality="keyboard"/);
+  assert.match(
+    styles,
+    /:root:not\(\[data-input-modality\]\) \.interactive-card:focus-visible/,
+  );
+  assert.match(styles, /\.interactive-card:focus-visible\s*\{[^}]*outline: none/s);
+  assert.doesNotMatch(
+    styles,
+    /\.interactive-card[^,{]*:is\(:hover, :focus-visible\)[^{]*\{[^}]*border/s,
+  );
+  assert.match(styles, /prefers-reduced-motion: no-preference/);
+});
+
 test("library availability uses an accessible download icon", async () => {
   const source = await readFile(
     new URL("../app/media-card.tsx", import.meta.url),
