@@ -73,11 +73,19 @@ test("catalogue menu switches immediately with keyboard focus and preserves navi
   ]);
 
   assert.match(browser, /useRouter\(\)/);
-  assert.match(browser, /useOptimistic\(surface\)/);
-  assert.match(browser, /setVisualSurface\(item\.id\)/);
+  assert.match(browser, /useState<NavigationState>/);
+  assert.match(browser, /pendingSurface: item\.id/);
   assert.match(browser, /from "motion\/react"/);
+  assert.match(browser, /CATALOGUE_SWAP_DELAY_MS = 180/);
+  assert.match(browser, /useStagedSurface\(visualSurface\)/);
+  assert.match(browser, /window\.setTimeout\([\s\S]*?CATALOGUE_SWAP_DELAY_MS,\s*\)/);
+  assert.match(
+    browser,
+    /<CatalogueContent key=\{contentSurface\} surface=\{contentSurface\} \/>/,
+  );
   assert.match(browser, /layoutId="catalogue-active-indicator"/);
-  assert.match(browser, /visualSurface === item\.id \? \(/);
+  assert.match(browser, /className="h-0\.5 w-7/);
+  assert.match(browser, /pendingSurface \?\? surface/);
   assert.match(browser, /<MotionConfig\s+reducedMotion="user"/);
   assert.match(browser, /data-keyboard-menu="true"/);
   assert.match(browser, /tabIndex=\{surface === item\.id \? 0 : -1\}/);
@@ -89,6 +97,8 @@ test("catalogue menu switches immediately with keyboard focus and preserves navi
   assert.match(browser, /router\.push\([^;]+scroll: false/s);
   assert.doesNotMatch(browser, /createDebouncedPublisher/);
   assert.doesNotMatch(browser, /MENU_FOCUS_DELAY_MS/);
+  assert.doesNotMatch(browser, /useOptimistic|startTransition/);
+  assert.match(browser, /\[content-visibility:auto\]/);
   assert.doesNotMatch(ui, /catalogueNavItemClass\s*=\s*[^;]+interactive-card/s);
   assert.doesNotMatch(browser, /border-r/);
   assert.doesNotMatch(page, /<CatalogueBrowser key=\{surface\}/);

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { motion, MotionConfig } from "motion/react";
-import { startTransition, useOptimistic } from "react";
+import { useEffect, useState } from "react";
 import {
   type CatalogueManifest,
   type Surface,
@@ -29,14 +29,27 @@ const surfaces: { id: Surface; label: string }[] = [
   { id: "movies", label: "Movies" },
   { id: "series", label: "Series" },
 ];
+const CATALOGUE_SWAP_DELAY_MS = 180;
 const rowClass = `grid grid-flow-col gap-4 overflow-x-auto overscroll-x-contain scroll-px-5 sm:scroll-px-8 lg:scroll-px-12 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden snap-x snap-proximity pt-3 pb-7 sm:gap-5 ${pageGutter}`;
 type ManifestRail = CatalogueManifest["rails"][number];
+type NavigationState = {
+  confirmedSurface: Surface;
+  pendingSurface: Surface | null;
+};
 
 export function CatalogueBrowser({ surface }: { surface: Surface }) {
   const router = useRouter();
-  const [visualSurface, setVisualSurface] = useOptimistic(surface);
-  const manifestQuery = useQuery(catalogueManifestQuery(surface));
-  const manifest = manifestQuery.data;
+  const [navigation, setNavigation] = useState<NavigationState>({
+    confirmedSurface: surface,
+    pendingSurface: null,
+  });
+  let pendingSurface = navigation.pendingSurface;
+  if (navigation.confirmedSurface !== surface) {
+    pendingSurface = pendingSurface === surface ? null : pendingSurface;
+    setNavigation({ confirmedSurface: surface, pendingSurface });
+  }
+  const visualSurface = pendingSurface ?? surface;
+  const contentSurface = useStagedSurface(visualSurface);
 
   return (
     <AmbientBackdrop>
@@ -45,10 +58,8 @@ export function CatalogueBrowser({ surface }: { surface: Surface }) {
           <MotionConfig
             reducedMotion="user"
             transition={{
-              type: "spring",
-              stiffness: 500,
-              damping: 38,
-              mass: 0.55,
+              duration: 0.22,
+              ease: [0.22, 1, 0.36, 1],
             }}
           >
             <nav
@@ -74,29 +85,33 @@ export function CatalogueBrowser({ surface }: { surface: Surface }) {
                         (direction === "left" || direction === "right") &&
                         item.id !== surface
                       ) {
-                        startTransition(() => {
-                          setVisualSurface(item.id);
-                          router.replace(href, { scroll: false });
-                        });
+                        setNavigation((current) => ({
+                          ...current,
+                          pendingSurface: item.id,
+                        }));
+                        router.replace(href, { scroll: false });
                       }
                     }}
                     onNavigate={(event) => {
                       event.preventDefault();
                       if (item.id === visualSurface) return;
 
-                      startTransition(() => {
-                        setVisualSurface(item.id);
-                        router.push(href, { scroll: false });
-                      });
+                      setNavigation((current) => ({
+                        ...current,
+                        pendingSurface: item.id,
+                      }));
+                      router.push(href, { scroll: false });
                     }}
                     className={`inline-flex items-center ${catalogueNavItemClass} ${isVisuallyCurrent ? "text-white" : "text-white/55"}`}
                   >
                     {item.label}
                     {visualSurface === item.id ? (
-                      <motion.span
-                        layoutId="catalogue-active-indicator"
-                        className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 rounded-full bg-nav-accent shadow-[0_0_12px_rgb(255_209_102_/_0.38)]"
-                      />
+                      <span className="pointer-events-none absolute inset-x-0 bottom-0 flex justify-center">
+                        <motion.span
+                          layoutId="catalogue-active-indicator"
+                          className="h-0.5 w-7 rounded-full bg-nav-accent shadow-[0_0_12px_rgb(255_209_102_/_0.38)]"
+                        />
+                      </span>
                     ) : null}
                   </Link>
                 );
@@ -104,7 +119,34 @@ export function CatalogueBrowser({ surface }: { surface: Surface }) {
             </nav>
           </MotionConfig>
         </Header>
-        <main id="main-content" className="mx-auto max-w-[1600px] pb-16 sm:pb-24">
+        <CatalogueContent key={contentSurface} surface={contentSurface} />
+      </div>
+    </AmbientBackdrop>
+  );
+}
+
+function useStagedSurface(surface: Surface) {
+  const [stagedSurface, setStagedSurface] = useState(surface);
+
+  useEffect(() => {
+    if (surface === stagedSurface) return;
+
+    const timeout = window.setTimeout(
+      () => setStagedSurface(surface),
+      CATALOGUE_SWAP_DELAY_MS,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [stagedSurface, surface]);
+
+  return stagedSurface;
+}
+
+function CatalogueContent({ surface }: { surface: Surface }) {
+  const manifestQuery = useQuery(catalogueManifestQuery(surface));
+  const manifest = manifestQuery.data;
+
+  return (
+    <main id="main-content" className="mx-auto max-w-[1600px] pb-16 sm:pb-24">
         <section className={`pt-12 pb-10 sm:pt-16 sm:pb-14 ${pageGutter}`}>
           <Eyebrow>Your unified library</Eyebrow>
           <h1 className="max-w-4xl text-4xl leading-[1.08] font-semibold tracking-[-0.045em] text-balance sm:text-6xl lg:text-7xl">
@@ -166,9 +208,7 @@ export function CatalogueBrowser({ surface }: { surface: Surface }) {
             ))}
           </div>
         )}
-        </main>
-      </div>
-    </AmbientBackdrop>
+    </main>
   );
 }
 
@@ -184,7 +224,7 @@ function CatalogueRail({
 
   return (
     <section
-      className="min-w-0"
+      className="min-w-0 [contain-intrinsic-size:auto_28rem] [content-visibility:auto]"
       aria-labelledby={`section-${rail.id}`}
       aria-busy={!section && query.isPending}
     >
