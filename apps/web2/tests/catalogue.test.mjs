@@ -303,9 +303,17 @@ test("source selection is a full-screen, remote-friendly Reel view", async () =>
 });
 
 test("custom player exposes complete playback and track controls", async () => {
-  const [player, playback] = await Promise.all([
+  const [playerSource, timeline, settings, playback] = await Promise.all([
     readFile(
       new URL("../app/title/[kind]/[id]/video-player.tsx", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../app/title/[kind]/[id]/video-player-timeline.tsx", import.meta.url),
+      "utf8",
+    ),
+    readFile(
+      new URL("../app/title/[kind]/[id]/video-player-settings.tsx", import.meta.url),
       "utf8",
     ),
     readFile(
@@ -313,6 +321,7 @@ test("custom player exposes complete playback and track controls", async () => {
       "utf8",
     ),
   ]);
+  const player = `${playerSource}\n${timeline}\n${settings}`;
 
   assert.match(player, /aria-label="Seek through video"/);
   assert.match(player, /aria-label="Volume"/);
@@ -346,8 +355,7 @@ test("track changes keep the mounted player and swap its descriptor in place", a
     playbackRoute.indexOf("async function selectPlaybackTracks"),
     playbackRoute.indexOf("function closePlayback"),
   );
-  assert.match(trackActivation, /media,\s*episode,\s*undefined,/);
-  assert.doesNotMatch(trackActivation, /media,\s*episode,\s*resumeSeconds,/);
+  assert.match(trackActivation, /media,\s*episode,\s*positionSeconds,/);
   assert.doesNotMatch(
     playbackRoute,
     /onSelectTracks=\{\(resumeSeconds, selection\) =>\s*playLocal/,

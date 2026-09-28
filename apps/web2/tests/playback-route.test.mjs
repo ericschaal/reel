@@ -74,6 +74,7 @@ async function mountPlayer(container, sourceSelection = { kind: "auto" }) {
     ),
   );
   assert.equal(container.firstElementChild?.dataset.status, "ready");
+  assert.equal(globalThis.__lastResumeSeconds, 12);
   return root;
 }
 
@@ -99,5 +100,15 @@ test("the URL-backed player route activates an explicit opaque source", async ()
   const root = await mountPlayer(container, sourceSelection);
 
   assert.deepEqual(globalThis.__lastSourceSelection, sourceSelection);
+  await act(async () => root.unmount());
+});
+
+test("track changes reactivate playback from the current position", async () => {
+  const container = document.getElementById("root");
+  const root = await mountPlayer(container);
+
+  await act(async () => container.firstElementChild.click());
+
+  assert.equal(globalThis.__lastResumeSeconds, 37);
   await act(async () => root.unmount());
 });

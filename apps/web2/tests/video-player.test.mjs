@@ -15,6 +15,15 @@ registerHooks({
     if (specifier === 'hls.js') {
       return { url: new URL('./fixtures/hls.mjs', import.meta.url).href, shortCircuit: true };
     }
+    if (specifier === './video-player-state') {
+      return { url: new URL('../app/title/[kind]/[id]/video-player-state.ts', import.meta.url).href, shortCircuit: true };
+    }
+    if (specifier === './video-player-timeline') {
+      return { url: new URL('../app/title/[kind]/[id]/video-player-timeline.tsx', import.meta.url).href, shortCircuit: true };
+    }
+    if (specifier === './video-player-settings') {
+      return { url: new URL('../app/title/[kind]/[id]/video-player-settings.tsx', import.meta.url).href, shortCircuit: true };
+    }
     return nextResolve(specifier, context);
   },
   load(url, context, nextLoad) {
@@ -308,6 +317,31 @@ test('prefers hls.js when the browser also advertises native HLS', async () => {
   assert.equal(video.getAttribute('src'), null);
 });
 
+test('hls.js retries transient fatal network errors before stopping playback', async () => {
+  nativeHls = false;
+  await mount();
+  const hls = Hls.instances[0];
+
+  await act(() => hls.emit(Hls.Events.ERROR, { fatal: true, type: Hls.ErrorTypes.NETWORK_ERROR }));
+  await act(() => hls.emit(Hls.Events.ERROR, { fatal: true, type: Hls.ErrorTypes.NETWORK_ERROR }));
+  assert.equal(hls.startLoadCalls, 2);
+  assert.equal(container.querySelector('h2')?.textContent, undefined);
+
+  await act(() => hls.emit(Hls.Events.ERROR, { fatal: true, type: Hls.ErrorTypes.NETWORK_ERROR }));
+  assert.equal(container.querySelector('h2')?.textContent, 'Playback interrupted');
+});
+
+test('fullscreen rejection is reported without interrupting playback', async () => {
+  const video = await mount();
+  await canPlay(video);
+  video.parentElement.requestFullscreen = () => Promise.reject(new Error('Denied'));
+
+  await click('Enter fullscreen');
+
+  assert.match(container.querySelector('[role="status"]').textContent, /Fullscreen is not available/);
+  assert.equal(container.querySelector('h2'), null);
+});
+
 test('volume dragging keeps controls visible when the pointer leaves the player', async () => {
   const video = await mount();
   await canPlay(video);
@@ -335,11 +369,33 @@ test('volume dragging leaves the range gesture native and ends on window pointer
   assert.ok(player.className.includes('cursor-none'), 'A release outside the slider must finish the drag');
 });
 
+test('unmuting from zero restores the last audible volume', async () => {
+  const video = await mount();
+  const slider = container.querySelector('[aria-label="Volume"]');
+  const setSlider = async value => act(() => {
+    Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set.call(slider, value);
+    slider.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+  });
+
+  await setSlider('0.35');
+  await setSlider('0');
+  assert.equal(video.muted, true);
+  await click('Unmute');
+
+  assert.equal(video.muted, false);
+  assert.equal(video.volume, 0.35);
+});
+
 test('settings support category arrow navigation and Escape restores the opener', async () => {
   await mount();
   const opener = container.querySelector('[aria-label="Playback settings"]');
   opener.focus();
   await click('Playback settings');
+  assert.equal(document.activeElement.getAttribute('aria-label'), 'Audio');
+  assert.equal(container.querySelector('[role="dialog"]').getAttribute('aria-modal'), 'true');
+  await act(() => document.activeElement.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true })));
+  assert.equal(document.activeElement.getAttribute('aria-label'), 'Speed');
+  await act(() => document.activeElement.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Tab', bubbles: true })));
   assert.equal(document.activeElement.getAttribute('aria-label'), 'Audio');
   await act(() => document.activeElement.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })));
   assert.equal(document.activeElement.getAttribute('aria-label'), 'Subtitles');
@@ -361,4 +417,25 @@ test('choosing the current audio track does not interrupt playback', async () =>
   await click('Original audio');
   assert.equal(switches, 0);
   assert.equal(video.paused, false);
+});
+
+test('rapid repeated track choices start only one activation', async () => {
+  let switches = 0;
+  let finishActivation;
+  await mount({}, () => {
+    switches += 1;
+    return new Promise(resolve => { finishActivation = resolve; });
+  });
+  await click('Playback settings');
+  await click('Audio');
+  const alternate = [...container.querySelectorAll('button')].find(button =>
+    button.getAttribute('aria-label') === 'Alternate audio');
+
+  await act(() => {
+    alternate.click();
+    alternate.click();
+  });
+
+  assert.equal(switches, 1);
+  await act(async () => finishActivation({ ...descriptor, mediaUrl: '/replacement', selectedAudioIndex: 2 }));
 });

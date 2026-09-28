@@ -5,6 +5,10 @@ export default class Hls {
     'SUBTITLE_TRACKS_UPDATED', 'ERROR',
   ].map(name => [name, name]));
   static supported = true;
+  static ErrorTypes = {
+    NETWORK_ERROR: 'networkError',
+    MEDIA_ERROR: 'mediaError',
+  };
   static isSupported() { return Hls.supported; }
   constructor(config) {
     this.config = config;
@@ -26,5 +30,7 @@ export default class Hls {
   }
   loadSource(url) { this.url = url; }
   attachMedia(video) { this.video = video; }
+  startLoad() { this.startLoadCalls = (this.startLoadCalls ?? 0) + 1; }
+  recoverMediaError() { this.recoverMediaErrorCalls = (this.recoverMediaErrorCalls ?? 0) + 1; }
   destroy() { this.handlers.clear(); }
 }

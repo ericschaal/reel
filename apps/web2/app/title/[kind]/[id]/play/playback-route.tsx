@@ -41,7 +41,7 @@ export function PlaybackRoute({
       void activatePlayback(
         media,
         episode,
-        undefined,
+        resumeSeconds,
         controller.signal,
         trackSelection,
         sourceSelection,
@@ -85,7 +85,7 @@ export function PlaybackRoute({
   }, [activate]);
 
   async function selectPlaybackTracks(
-    _positionSeconds: number,
+    positionSeconds: number,
     selection: PlaybackTrackSelection,
   ) {
     activation.current?.abort();
@@ -95,7 +95,7 @@ export function PlaybackRoute({
       return await activatePlayback(
         media,
         episode,
-        undefined,
+        positionSeconds,
         controller.signal,
         selection,
         sourceSelection,
