@@ -69,8 +69,8 @@ export function PlayerSettings({
         !target.closest('button[aria-label="Playback settings"]')
       ) onClose();
     };
-    document.addEventListener("click", dismiss);
-    return () => document.removeEventListener("click", dismiss);
+    document.addEventListener("pointerdown", dismiss);
+    return () => document.removeEventListener("pointerdown", dismiss);
   }, [onClose]);
 
   const categories = [

@@ -408,6 +408,16 @@ test('settings support category arrow navigation and Escape restores the opener'
   assert.equal(document.activeElement, opener);
 });
 
+test('settings dismiss on an outside pointer gesture', async () => {
+  await mount();
+  await click('Playback settings');
+  assert.ok(container.querySelector('[role="dialog"]'));
+
+  await act(() => document.body.dispatchEvent(new dom.window.Event('pointerdown', { bubbles: true })));
+
+  assert.equal(container.querySelector('[role="dialog"]'), null);
+});
+
 test('choosing the current audio track does not interrupt playback', async () => {
   let switches = 0;
   const video = await mount({}, async () => { switches++; return descriptor; });
