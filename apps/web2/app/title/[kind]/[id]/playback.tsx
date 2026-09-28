@@ -361,12 +361,16 @@ export function WatchNowControl({
   onPlay,
   onOpenSources,
   sourcesOpen = false,
+  sourcesLoading = false,
+  startingPlayback = false,
   disabled = false,
 }: {
   progress: PlaybackProgress | null;
   onPlay: (resumeSeconds?: number) => void;
   onOpenSources: (resumeSeconds?: number) => void;
   sourcesOpen?: boolean;
+  sourcesLoading?: boolean;
+  startingPlayback?: boolean;
   disabled?: boolean;
 }) {
   const resumeSeconds = progress?.positionSeconds;
@@ -379,10 +383,22 @@ export function WatchNowControl({
       <button
         type="button"
         className="inline-flex min-h-11 items-center justify-center gap-2 px-5 py-2.5 text-sm font-semibold transition-colors hover:bg-amber-300 focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-background disabled:cursor-not-allowed disabled:opacity-50"
-        disabled={disabled}
+        disabled={disabled || startingPlayback}
         onClick={() => onPlay(resumeSeconds)}
       >
-        <PlayIcon /> {progress ? `Resume · ${formatRemaining(progress)}` : "Watch Now"}
+        {startingPlayback ? (
+          <>
+            <span
+              className="size-4 rounded-full border-2 border-background/30 border-t-background motion-safe:animate-spin"
+              aria-hidden="true"
+            />
+            <span>Starting playback…</span>
+          </>
+        ) : (
+          <>
+            <PlayIcon /> {progress ? `Resume · ${formatRemaining(progress)}` : "Watch Now"}
+          </>
+        )}
       </button>
       <button
         type="button"
@@ -392,11 +408,26 @@ export function WatchNowControl({
         aria-haspopup="dialog"
         aria-expanded={sourcesOpen}
         title="Choose another source"
-        disabled={disabled}
+        disabled={disabled || startingPlayback}
         onClick={() => onOpenSources(resumeSeconds)}
       >
-        <ChevronDownIcon />
+        <span className="relative grid size-6 place-items-center">
+          {sourcesLoading && !startingPlayback ? (
+            <span
+              className="absolute inset-0 rounded-full border-2 border-background/20 border-t-background/80 motion-safe:animate-spin"
+              aria-hidden="true"
+            />
+          ) : null}
+          <ChevronDownIcon />
+        </span>
       </button>
+      <span className="sr-only" role="status">
+        {startingPlayback
+          ? "Starting playback…"
+          : sourcesLoading
+            ? "Finding sources…"
+            : ""}
+      </span>
     </div>
   );
 }

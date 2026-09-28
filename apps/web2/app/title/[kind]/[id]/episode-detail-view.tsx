@@ -32,6 +32,8 @@ export function EpisodeDetailView({
   onPlay,
   onOpenSources,
   sourcesOpen,
+  startingPlayback,
+  sourcesLoading,
   onDownload,
 }: {
   media: TitleMedia;
@@ -48,6 +50,8 @@ export function EpisodeDetailView({
   onPlay: (resumeSeconds?: number) => void;
   onOpenSources: (resumeSeconds?: number) => void;
   sourcesOpen: boolean;
+  startingPlayback: boolean;
+  sourcesLoading: boolean;
   onDownload: () => void;
 }) {
   return (
@@ -84,6 +88,8 @@ export function EpisodeDetailView({
                 onPlay={onPlay}
                 onOpenSources={onOpenSources}
                 sourcesOpen={sourcesOpen}
+                sourcesLoading={sourcesLoading}
+                startingPlayback={startingPlayback}
               />
               {episode.availability === "local" ? (
                 <DownloadedStatus />

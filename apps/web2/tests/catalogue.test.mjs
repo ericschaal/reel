@@ -235,7 +235,7 @@ test("movies and exact episodes activate normalized playback through the existin
   assert.match(nextConfig, /source: "\/v1\/playback\/:path\*"/);
 });
 
-test("source discovery starts on detail open and reuses the query cache", async () => {
+test("source discovery starts on detail open and playback does not wait for it", async () => {
   const [playback, titleDetail] = await Promise.all([
     readFile(
       new URL("../app/title/[kind]/[id]/playback.tsx", import.meta.url),
@@ -254,8 +254,10 @@ test("source discovery starts on detail open and reuses the query cache", async 
   assert.match(titleDetail, /enabled: canDiscover/);
   assert.match(titleDetail, /const discoveryEpisode = episodeDialog \?\? nextEpisode/);
   assert.match(titleDetail, /const discovery = sourceDiscoveryQuery\.data/);
-  assert.match(titleDetail, /queryClient\.fetchQuery\(/);
-  assert.match(titleDetail, /discoveryId: discovery\.discoveryId/);
+  assert.doesNotMatch(titleDetail, /queryClient\.fetchQuery\(/);
+  assert.match(titleDetail, /!sourceDiscoveryQuery\.isStale/);
+  assert.match(titleDetail, /discoveryId: sourceDiscoveryQuery\.data\.discoveryId/);
+  assert.match(titleDetail, /startPlaybackTransition\(/);
   assert.match(titleDetail, /href\.searchParams\.set\("source", "auto"\)/);
 });
 

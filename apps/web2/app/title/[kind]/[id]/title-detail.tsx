@@ -1,8 +1,8 @@
 "use client";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import {
   playbackHref,
   type Episode,
@@ -41,7 +41,7 @@ export function TitleDetail({
   progress: PlaybackProgress | null;
 }) {
   const router = useRouter();
-  const queryClient = useQueryClient();
+  const [startingPlayback, startPlaybackTransition] = useTransition();
   const media: TitleMedia = { ...title, progress: initialProgress };
   const series = title.kind === "series" ? title : null;
   const initialSeason = series?.initialSeason ?? null;
@@ -94,24 +94,22 @@ export function TitleDetail({
     setSeasonNumber(nextSeasonNumber);
   }
 
-  async function play(
+  function play(
     resumeSeconds?: number,
     episode = nextEpisode ?? undefined,
     sourceSelection: SourceSelection = { kind: "auto" },
   ) {
+    if (startingPlayback) return;
     let resolvedSelection = sourceSelection;
-    if (sourceSelection.kind === "auto") {
-      try {
-        const discovery = await queryClient.fetchQuery(
-          playbackSourcesQuery(media, episode),
-        );
-        resolvedSelection = {
-          kind: "auto",
-          discoveryId: discovery.discoveryId,
-        };
-      } catch {
-        // Direct play still has a fresh-search fallback if discovery failed.
-      }
+    if (
+      sourceSelection.kind === "auto" &&
+      sourceDiscoveryQuery.data &&
+      !sourceDiscoveryQuery.isStale
+    ) {
+      resolvedSelection = {
+        kind: "auto",
+        discoveryId: sourceDiscoveryQuery.data.discoveryId,
+      };
     }
     const href = new URL(
       playbackHref(media, episode, resumeSeconds),
@@ -127,7 +125,9 @@ export function TitleDetail({
       href.searchParams.set("source", "auto");
       href.searchParams.set("discovery", resolvedSelection.discoveryId);
     }
-    router.push(`${href.pathname}${href.search}`, { scroll: false });
+    startPlaybackTransition(() => {
+      router.push(`${href.pathname}${href.search}`, { scroll: false });
+    });
   }
 
   function openSources(
@@ -159,7 +159,7 @@ export function TitleDetail({
           };
     const { resumeSeconds, episode } = sourcePicker;
     setSourcePicker(null);
-    void play(resumeSeconds, episode, selection);
+    play(resumeSeconds, episode, selection);
   }
 
   function openDownload() {
@@ -241,11 +241,13 @@ export function TitleDetail({
           onBack={closeEpisode}
           onSelectSeason={selectSeason}
           onOpenEpisode={openEpisode}
-          onPlay={(resumeSeconds) => void play(resumeSeconds, episodeDialog)}
+          onPlay={(resumeSeconds) => play(resumeSeconds, episodeDialog)}
           onOpenSources={(resumeSeconds) =>
             openSources(resumeSeconds, episodeDialog)
           }
           sourcesOpen={sourcePicker != null}
+          startingPlayback={startingPlayback}
+          sourcesLoading={sourceDiscoveryQuery.isPending}
           onDownload={() =>
             setDownloadScope({ kind: "episode", episode: episodeDialog })
           }
@@ -319,9 +321,11 @@ export function TitleDetail({
             <div className="mt-5 flex flex-wrap items-stretch gap-3">
               <WatchNowControl
                 progress={progress}
-                onPlay={(resumeSeconds) => void play(resumeSeconds)}
+                onPlay={(resumeSeconds) => play(resumeSeconds)}
                 onOpenSources={(resumeSeconds) => openSources(resumeSeconds)}
                 sourcesOpen={sourcePicker != null}
+                sourcesLoading={sourceDiscoveryQuery.isPending && canDiscover}
+                startingPlayback={startingPlayback}
                 disabled={!canDiscover}
               />
               {media.kind === "movie" && media.availability === "local" ? (

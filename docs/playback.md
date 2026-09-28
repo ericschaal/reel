@@ -94,10 +94,12 @@ can load WebVTT cues through the same scoped session proxy.
 
 Both local and direct sources use the same URL-backed play route and the same
 full-featured `ReelVideoPlayer`. The primary segment of the split **Watch Now**
-control activates the preferred source from cached background discovery; its
-secondary segment opens a full-screen, TV-friendly ordered source view. The
-recommended source receives initial focus, arrow keys move predictably through
-the list, and Escape/back restores focus to the split-button trigger.
+control uses cached background discovery when ready and otherwise starts
+automatic resolution in the player without waiting on the detail page. Its
+secondary segment opens a full-screen, TV-friendly ordered source view with a
+loading state while discovery is running. The recommended source receives
+initial focus, arrow keys move predictably through the list, and Escape/back
+restores focus to the split-button trigger.
 
 ## Current limits
 
