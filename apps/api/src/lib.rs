@@ -5,6 +5,7 @@ pub mod jellyfin;
 pub mod media;
 mod observability;
 pub mod playback;
+pub mod requests;
 pub mod seerr;
 pub mod stremio;
 

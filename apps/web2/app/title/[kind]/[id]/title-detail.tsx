@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import {
@@ -13,6 +13,7 @@ import {
 } from "../../../catalogue";
 import { Artwork, RatingBadge } from "../../../media-card";
 import { seasonQuery } from "../../../reel-query";
+import { createMediaRequest, movieAvailabilityQuery, requestIsBlocked, requestNeedsAvailabilityRefresh, requestProfilesQuery, requestStatusQuery } from "../../../requests";
 import {
   buttonClass,
   Eyebrow,
@@ -22,6 +23,7 @@ import {
 import { DownloadView, type DownloadScope } from "./download-view";
 import { EpisodeDetailView } from "./episode-detail-view";
 import { NextUp, SeriesHierarchy } from "./episodes";
+import { RequestStatusIndicator } from "./request-status-indicator";
 import {
   DownloadIcon,
   DownloadedStatus,
@@ -41,9 +43,32 @@ export function TitleDetail({
   progress: PlaybackProgress | null;
 }) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [startingPlayback, startPlaybackTransition] = useTransition();
-  const media: TitleMedia = { ...title, progress: initialProgress };
+  const requestQuery = useQuery(requestStatusQuery(title.kind, title.tmdbId));
+  const movieAvailability = useQuery({
+    ...movieAvailabilityQuery(title.tmdbId),
+    initialData: title.kind === "movie" ? title.availability : undefined,
+    enabled: title.kind === "movie" && title.availability !== "local" && requestNeedsAvailabilityRefresh(requestQuery.data),
+    refetchInterval: (query) => query.state.data === "local" ? false : 30_000,
+  });
+  const media: TitleMedia = {
+    ...title,
+    availability: title.kind === "movie" && title.availability !== "local"
+      ? movieAvailability.data ?? title.availability
+      : title.availability,
+    progress: initialProgress,
+  };
   const series = title.kind === "series" ? title : null;
+  const createRequest = useMutation({
+    mutationFn: createMediaRequest,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["reel", "requests", media.kind, media.tmdbId] });
+    },
+    onError: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["reel", "requests", media.kind, media.tmdbId] });
+    },
+  });
   const initialSeason = series?.initialSeason ?? null;
   const seriesError =
     series && !initialSeason && series.issues.length
@@ -52,11 +77,16 @@ export function TitleDetail({
   const [seasonNumber, setSeasonNumber] = useState(
     initialSeason?.seasonNumber ?? null,
   );
+  const selectedSeasonRequest = requestQuery.data?.seasons.find(
+    (item) => item.seasonNumber === seasonNumber,
+  );
   const selectedSeasonQuery = useQuery({
     ...seasonQuery(series?.tmdbId ?? 0, seasonNumber ?? 0),
     enabled: Boolean(series && seasonNumber != null),
     initialData:
       initialSeason?.seasonNumber === seasonNumber ? initialSeason : undefined,
+    refetchInterval: requestNeedsAvailabilityRefresh(selectedSeasonRequest) ? 30_000 : false,
+    refetchOnWindowFocus: true,
   });
   const season = selectedSeasonQuery.data ?? null;
   const seasonLoading = selectedSeasonQuery.isPending && seasonNumber != null;
@@ -74,7 +104,10 @@ export function TitleDetail({
       null,
   );
   const [episodeDialog, setEpisodeDialog] = useState<Episode | null>(null);
-  const discoveryEpisode = episodeDialog ?? nextEpisode ?? undefined;
+  const currentEpisode = episodeDialog
+    ? season?.episodes.find((episode) => episode.id === episodeDialog.id) ?? episodeDialog
+    : null;
+  const discoveryEpisode = currentEpisode ?? nextEpisode ?? undefined;
   const canDiscover = media.kind === "movie" || discoveryEpisode != null;
   const sourceDiscoveryQuery = useQuery({
     ...playbackSourcesQuery(media, discoveryEpisode),
@@ -87,6 +120,11 @@ export function TitleDetail({
   const [downloadScope, setDownloadScope] = useState<DownloadScope | null>(
     null,
   );
+  const [selectedProfileId, setSelectedProfileId] = useState<number | null>(null);
+  const profilesQuery = useQuery({
+    ...requestProfilesQuery(media.kind),
+    enabled: downloadScope != null,
+  });
   const progress = progressForSelection(media.progress, nextEpisode);
 
   function selectSeason(nextSeasonNumber: number) {
@@ -163,16 +201,29 @@ export function TitleDetail({
   }
 
   function openDownload() {
+    createRequest.reset();
+    setSelectedProfileId(null);
     if (media.kind === "movie") {
-      if (media.availability !== "local") {
+      if (media.availability !== "local" && !requestIsBlocked(requestQuery.data)) {
         setDownloadScope({ kind: "movie" });
       }
     } else if (seasonNumber != null) {
       setDownloadScope({
         kind: "series",
-        seasonNumbers: [seasonNumber],
+        seasonNumbers: requestIsBlocked(selectedSeasonRequest) ? [] : [seasonNumber],
       });
     }
+  }
+
+  function submitDownload(scope: DownloadScope) {
+    const profileId = selectedProfileId ?? profilesQuery.data?.defaultProfileId;
+    if (createRequest.isPending || profileId == null) return;
+    createRequest.mutate({
+      kind: media.kind,
+      tmdbId: media.tmdbId,
+      ...(scope.kind === "series" ? { seasonNumbers: scope.seasonNumbers } : {}),
+      profileId,
+    });
   }
 
   function openEpisode(episode: Episode) {
@@ -181,6 +232,15 @@ export function TitleDetail({
 
   function closeEpisode() {
     setEpisodeDialog(null);
+  }
+
+  function refreshRequestStatus() {
+    void requestQuery.refetch();
+    if (media.kind === "movie") {
+      void movieAvailability.refetch();
+    } else {
+      void selectedSeasonQuery.refetch();
+    }
   }
 
   const sourcePickerState = sourcePicker
@@ -206,9 +266,20 @@ export function TitleDetail({
       <DownloadView
         media={media}
         series={series}
-        season={season}
         scope={downloadScope}
+        status={requestQuery.data ?? null}
+        statusLoading={requestQuery.isPending}
+        statusError={requestQuery.isError ? "Seerr request status could not be loaded. Please try again later." : null}
+        profiles={profilesQuery.data ?? null}
+        profilesLoading={profilesQuery.isPending}
+        profilesError={profilesQuery.error instanceof Error ? profilesQuery.error.message : null}
+        selectedProfileId={selectedProfileId ?? profilesQuery.data?.defaultProfileId ?? null}
+        submitting={createRequest.isPending}
+        submitError={createRequest.error instanceof Error ? createRequest.error.message : null}
+        submitted={createRequest.isSuccess}
         onChange={setDownloadScope}
+        onProfileChange={setSelectedProfileId}
+        onSubmit={submitDownload}
         onBack={() => setDownloadScope(null)}
       />
     );
@@ -227,30 +298,28 @@ export function TitleDetail({
     );
   }
 
-  if (episodeDialog) {
+  if (currentEpisode) {
     return (
       <EpisodeDetailView
           media={media}
-          episode={episodeDialog}
+          episode={currentEpisode}
           series={series}
           season={season}
           seasonNumber={seasonNumber}
           seasonLoading={seasonLoading}
           seasonError={seasonError}
-          progress={progressForSelection(media.progress, episodeDialog)}
+          progress={progressForSelection(media.progress, currentEpisode)}
           onBack={closeEpisode}
           onSelectSeason={selectSeason}
           onOpenEpisode={openEpisode}
-          onPlay={(resumeSeconds) => play(resumeSeconds, episodeDialog)}
+          onPlay={(resumeSeconds) => play(resumeSeconds, currentEpisode)}
           onOpenSources={(resumeSeconds) =>
-            openSources(resumeSeconds, episodeDialog)
+            openSources(resumeSeconds, currentEpisode)
           }
           sourcesOpen={sourcePicker != null}
           startingPlayback={startingPlayback}
           sourcesLoading={sourceDiscoveryQuery.isPending}
-          onDownload={() =>
-            setDownloadScope({ kind: "episode", episode: episodeDialog })
-          }
+          requestStatus={requestQuery.data?.seasons.find((item) => item.seasonNumber === currentEpisode.seasonNumber)}
       />
     );
   }
@@ -330,7 +399,7 @@ export function TitleDetail({
               />
               {media.kind === "movie" && media.availability === "local" ? (
                 <DownloadedStatus />
-              ) : (
+              ) : media.kind === "movie" && requestIsBlocked(requestQuery.data) ? null : (
                 <button
                   className={buttonClass}
                   type="button"
@@ -339,6 +408,15 @@ export function TitleDetail({
                   <DownloadIcon /> Download
                 </button>
               )}
+              {(media.kind === "movie" && media.availability !== "local") || (media.kind === "series" && seasonNumber != null) ? (
+                <RequestStatusIndicator
+                  status={media.kind === "movie" ? requestQuery.data : selectedSeasonRequest}
+                  seasonNumber={media.kind === "series" ? seasonNumber ?? undefined : undefined}
+                  error={requestQuery.isError}
+                  refreshing={requestQuery.isFetching || movieAvailability.isFetching || selectedSeasonQuery.isFetching}
+                  onRefresh={refreshRequestStatus}
+                />
+              ) : null}
             </div>
             <PlaybackHint progress={progress} />
           </div>
@@ -352,9 +430,6 @@ export function TitleDetail({
             error={seasonError}
             onSelectSeason={selectSeason}
             onOpenEpisode={openEpisode}
-            onDownloadEpisode={(episode) =>
-              setDownloadScope({ kind: "episode", episode })
-            }
           />
         ) : null}
       </main>

@@ -60,6 +60,93 @@ pub struct MediaInfo {
     pub service_id4k: Option<i64>,
     pub external_service_id: Option<i64>,
     pub external_service_id4k: Option<i64>,
+    #[serde(default)]
+    pub requests: Vec<MediaRequest>,
+    #[serde(default)]
+    pub seasons: Vec<MediaSeason>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaRequest {
+    pub id: i64,
+    pub status: u8,
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub is4k: bool,
+    #[serde(default)]
+    pub seasons: Vec<SeasonRequest>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SeasonRequest {
+    pub season_number: i32,
+    pub status: u8,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct MediaSeason {
+    pub season_number: i32,
+    pub status: u8,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServiceConnection {
+    pub id: i64,
+    pub hostname: String,
+    pub port: u16,
+    #[serde(default)]
+    pub base_url: String,
+    pub use_ssl: bool,
+    pub api_key: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueItem {
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub tracked_download_status: String,
+    #[serde(default)]
+    pub tracked_download_state: String,
+    #[serde(default)]
+    pub season_numbers: Vec<i32>,
+    pub season_number: Option<i32>,
+    #[serde(default)]
+    pub episodes: Vec<QueueEpisode>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueueEpisode {
+    pub season_number: i32,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ServiceServer {
+    pub id: i64,
+    pub name: String,
+    pub is4k: bool,
+    pub is_default: bool,
+    pub active_profile_id: i64,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ServiceDetails {
+    pub server: ServiceServer,
+    pub profiles: Vec<ServiceProfile>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct ServiceProfile {
+    pub id: i64,
+    pub name: String,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]

@@ -244,7 +244,9 @@ impl CatalogueIssue {
                     unreachable!("AIOStreams does not produce catalogue issues")
                 }
                 Integration::Jellyfin => CatalogueSource::Jellyfin,
-                Integration::Seerr => CatalogueSource::Seerr,
+                Integration::Seerr | Integration::Radarr | Integration::Sonarr => {
+                    CatalogueSource::Seerr
+                }
             },
             section_id: section_id.map(Into::into),
             code: CatalogueIssueCode::UpstreamUnavailable,

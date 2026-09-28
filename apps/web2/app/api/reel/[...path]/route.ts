@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { reelProxyPathAllowed } from "../../../catalogue";
+import { reelProxyPathAllowed, reelRequestCreatePathAllowed } from "../../../catalogue";
 
 const apiBaseUrl = process.env.REEL_API_URL ?? "http://localhost:3000";
 
@@ -42,6 +42,51 @@ export async function GET(
           message: "The Reel API could not be reached",
         },
       },
+      { status: 502 },
+    );
+  }
+}
+
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ path: string[] }> },
+) {
+  const { path } = await params;
+  const reelPath = path.join("/");
+  if (!reelRequestCreatePathAllowed(reelPath)) {
+    return NextResponse.json(
+      { error: { code: "not_found", message: "Unknown request route" } },
+      { status: 404 },
+    );
+  }
+  if (!request.headers.get("content-type")?.startsWith("application/json")) {
+    return NextResponse.json(
+      { error: { code: "invalid_request", message: "Expected JSON" } },
+      { status: 400 },
+    );
+  }
+  const body = await request.text();
+  if (body.length > 8192) {
+    return NextResponse.json(
+      { error: { code: "invalid_request", message: "Request is too large" } },
+      { status: 413 },
+    );
+  }
+  try {
+    const response = await fetch(new URL(reelPath, `${apiBaseUrl.replace(/\/$/, "")}/`), {
+      method: "POST",
+      cache: "no-store",
+      headers: { accept: "application/json", "content-type": "application/json" },
+      body,
+      signal: AbortSignal.any([request.signal, AbortSignal.timeout(30_000)]),
+    });
+    return new NextResponse(await response.text(), {
+      status: response.status,
+      headers: { "content-type": response.headers.get("content-type") ?? "application/json" },
+    });
+  } catch {
+    return NextResponse.json(
+      { error: { code: "api_unavailable", message: "The Reel API could not be reached" } },
       { status: 502 },
     );
   }

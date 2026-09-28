@@ -158,11 +158,17 @@ export type Episode = {
 
 export function reelProxyPathAllowed(path: string) {
   return (
+    /^v1\/requests\/profiles\/(?:movie|series)$/.test(path) ||
+    /^v1\/requests\/(?:movie|series)\/[1-9][0-9]*$/.test(path) ||
     path === "v1/titles/summaries" ||
     /^v1\/catalogue\/(?:(?:discover|movies|series)(?:\/manifest|\/rails\/[a-z0-9-]+)?|collections\/[a-z0-9-]+(?:\/[0-9]+)?)$/.test(
       path,
     ) || /^v1\/titles\/(?:movie\/[0-9]+|series\/[0-9]+(?:\/seasons\/[0-9]+)?)$/.test(path)
   );
+}
+
+export function reelRequestCreatePathAllowed(path: string) {
+  return path === "v1/requests";
 }
 
 export function collectionHref(apiHref: string) {

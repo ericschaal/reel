@@ -40,19 +40,23 @@ async fn main() -> Result<(), io::Error> {
             .map_err(io::Error::other)?,
         );
     }
-    let catalogue = Catalogue::new(
-        Seerr::new(
-            required_env("SEERR_BASE_URL")?,
-            required_env("SEERR_API_KEY")?,
-        )
-        .map_err(io::Error::other)?,
-        jellyfin,
-    );
+    let seerr = Seerr::new(
+        required_env("SEERR_BASE_URL")?,
+        required_env("SEERR_API_KEY")?,
+    )
+    .map_err(io::Error::other)?;
+    let catalogue = Catalogue::new(seerr.clone(), jellyfin);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await?;
     tracing::info!(listen.address = %listener.local_addr()?, "API server listening");
 
-    axum::serve(listener, app(catalogue).merge(playback.router())).await
+    axum::serve(
+        listener,
+        app(catalogue)
+            .merge(playback.router())
+            .merge(reel_api::requests::router(seerr)),
+    )
+    .await
 }
 
 fn required_env(name: &str) -> io::Result<String> {

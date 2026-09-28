@@ -252,7 +252,7 @@ test("source discovery starts on detail open and playback does not wait for it",
   assert.match(playback, /staleTime: 5 \* 60 \* 1000/);
   assert.match(titleDetail, /\.\.\.playbackSourcesQuery\(media, discoveryEpisode\)/);
   assert.match(titleDetail, /enabled: canDiscover/);
-  assert.match(titleDetail, /const discoveryEpisode = episodeDialog \?\? nextEpisode/);
+  assert.match(titleDetail, /const discoveryEpisode = currentEpisode \?\? nextEpisode/);
   assert.match(titleDetail, /const discovery = sourceDiscoveryQuery\.data/);
   assert.doesNotMatch(titleDetail, /queryClient\.fetchQuery\(/);
   assert.match(titleDetail, /!sourceDiscoveryQuery\.isStale/);

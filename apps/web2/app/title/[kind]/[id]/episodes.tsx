@@ -6,12 +6,7 @@ import type {
 } from "../../../catalogue";
 import { Artwork, RatingBadge } from "../../../media-card";
 import { Eyebrow, glassClass } from "../../../ui";
-import {
-  DownloadIcon,
-  formatRemaining,
-  formatTime,
-  ProgressBar,
-} from "./playback";
+import { formatRemaining, formatTime, ProgressBar } from "./playback";
 
 const airDateFormatter = new Intl.DateTimeFormat("en", {
   month: "short",
@@ -28,7 +23,6 @@ export function SeriesHierarchy({
   error,
   onSelectSeason,
   onOpenEpisode,
-  onDownloadEpisode,
 }: {
   series: SeriesDetails | null;
   season: SeasonDetails | null;
@@ -37,7 +31,6 @@ export function SeriesHierarchy({
   error: string | null;
   onSelectSeason: (seasonNumber: number) => void;
   onOpenEpisode: (episode: Episode) => void;
-  onDownloadEpisode: (episode: Episode) => void;
 }) {
   return (
     <section className="mt-12 sm:mt-16" aria-labelledby="episodes-heading">
@@ -120,17 +113,6 @@ export function SeriesHierarchy({
                   </span>
                 ) : null}
               </span>
-              {!(episode.availability === "local") ? (
-                <button
-                  type="button"
-                  className="relative z-10 inline-flex min-h-11 items-center justify-center gap-2 self-center rounded-full border border-line px-4 text-xs font-semibold text-muted hover:border-white/40 hover:bg-white/10 hover:text-ink"
-                  onClick={() => onDownloadEpisode(episode)}
-                  aria-label={`Download ${episode.title}`}
-                >
-                  <DownloadIcon />
-                  <span className="sm:hidden lg:inline">Download</span>
-                </button>
-              ) : null}
             </article>
           ))}
         </div>

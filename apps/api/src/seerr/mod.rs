@@ -240,6 +240,136 @@ impl Seerr {
             )
             .await
     }
+
+    /// Submits a movie or season request using Seerr's configured defaults.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when Seerr rejects the request or does not create one.
+    pub async fn request_media(&self, body: &CreateMediaRequest) -> Result<MediaRequest> {
+        self.http.post_json_created("request", body).await
+    }
+
+    /// Lists the Radarr or Sonarr servers configured in Seerr.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when Seerr cannot return the list.
+    pub async fn service_servers(
+        &self,
+        media_type: RequestMediaType,
+    ) -> Result<Vec<ServiceServer>> {
+        self.http.get(media_type.service_path()).await
+    }
+
+    /// Loads quality profiles for a configured Radarr or Sonarr server.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when Seerr or the backing service is unavailable.
+    pub async fn service_details(
+        &self,
+        media_type: RequestMediaType,
+        server_id: i64,
+    ) -> Result<ServiceDetails> {
+        self.http
+            .get(&format!("{}/{server_id}", media_type.service_path()))
+            .await
+    }
+
+    /// Reads the linked Radarr or Sonarr download queue without exposing its credentials.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if Seerr settings or the backing service cannot be read.
+    pub async fn queue_details(
+        &self,
+        media_type: RequestMediaType,
+        server_id: i64,
+        external_id: i64,
+    ) -> Result<Vec<QueueItem>> {
+        let integration = media_type.integration();
+        let connections: Vec<ServiceConnection> = self.http.get(media_type.settings_path()).await?;
+        let connection = connections
+            .into_iter()
+            .find(|connection| connection.id == server_id)
+            .ok_or_else(|| Error::Configuration {
+                integration,
+                source: crate::integration::ConfigurationError::InvalidEndpointPath(
+                    "configured service not found".to_owned(),
+                ),
+            })?;
+        let scheme = if connection.use_ssl { "https" } else { "http" };
+        let mut url = Url::parse(&format!("{scheme}://{}/", connection.hostname))
+            .map_err(|source| Error::invalid_base_url(integration, source))?;
+        url.set_port(Some(connection.port))
+            .map_err(|()| Error::Configuration {
+                integration,
+                source: crate::integration::ConfigurationError::InvalidEndpointPath(
+                    "invalid service port".to_owned(),
+                ),
+            })?;
+        let base_path = connection.base_url.trim_matches('/');
+        url.set_path(&if base_path.is_empty() {
+            "/api/v3/".to_owned()
+        } else {
+            format!("/{base_path}/api/v3/")
+        });
+        let mut headers = HeaderMap::new();
+        headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
+        let mut api_key = HeaderValue::from_str(&connection.api_key)
+            .map_err(|source| Error::invalid_authentication_header(integration, source))?;
+        api_key.set_sensitive(true);
+        headers.insert(API_KEY, api_key);
+        let http = JsonClient::new(integration, url, headers)?;
+        let id_field = match media_type {
+            RequestMediaType::Movie => "movieId",
+            RequestMediaType::Tv => "seriesId",
+        };
+        http.get(&format!("queue/details?{id_field}={external_id}"))
+            .await
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateMediaRequest {
+    pub media_type: RequestMediaType,
+    pub media_id: TmdbId,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seasons: Option<Vec<i32>>,
+    pub server_id: i64,
+    pub profile_id: i64,
+}
+
+#[derive(Clone, Copy, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RequestMediaType {
+    Movie,
+    Tv,
+}
+
+impl RequestMediaType {
+    fn service_path(self) -> &'static str {
+        match self {
+            Self::Movie => "service/radarr",
+            Self::Tv => "service/sonarr",
+        }
+    }
+
+    fn settings_path(self) -> &'static str {
+        match self {
+            Self::Movie => "settings/radarr",
+            Self::Tv => "settings/sonarr",
+        }
+    }
+
+    fn integration(self) -> Integration {
+        match self {
+            Self::Movie => Integration::Radarr,
+            Self::Tv => Integration::Sonarr,
+        }
+    }
 }
 
 #[derive(Serialize)]

@@ -13,19 +13,22 @@ npm run dev
 Open [http://localhost:3001](http://localhost:3001). The frontend proxies catalogue requests to `REEL_API_URL`, which defaults to `http://localhost:3000`.
 
 Series title pages load season summaries and episode metadata from Reel, then
-enrich each episode with its Jellyfin local-copy status. Playback source,
-streaming, and download controls remain interactive previews until the
-corresponding action endpoints are implemented.
+enrich each episode with its Jellyfin local-copy status. Playback source and
+streaming controls use Reel's playback endpoints. Movie and season requests
+use Seerr through the Reel API.
 
 Playback progress belongs to the movie or episode, not to a source. Reel keeps
 the last source as the default for Resume, but can carry the saved timestamp to
 another source when the user switches or that source disappears. The timestamp
 is approximate across sources because different cuts may not align exactly.
 
-Series downloads use progressive scope: the title action selects one or more
-seasons (defaulting to the season being viewed), while each missing episode has
-its own direct download action. Episodes already available in Jellyfin are
-skipped.
+Series requests select one or more regular seasons, defaulting to the viewed
+season when it can be requested. Movie and series requests let the user choose
+a quality profile from Seerr's default non-4K Radarr or Sonarr server. Seerr requests entire seasons, so episodes do
+not have a separate request action. The detail page shows a compact request
+status with its date and refresh action. Downloading and importing appear only
+when Radarr or Sonarr reports a matching queue item; Jellyfin remains the
+source of playable local availability.
 
 The title page uses one split Play or Resume action for every source. Its main
 action prefers the last source for Resume, then a local Jellyfin copy, then the

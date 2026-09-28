@@ -6,16 +6,17 @@ import type {
   SeriesDetails,
 } from "../../../catalogue";
 import { Artwork } from "../../../media-card";
-import { buttonClass, Eyebrow, glassClass, pageGutter } from "../../../ui";
+import { Eyebrow, glassClass, pageGutter } from "../../../ui";
+import { type ItemRequestStatus } from "../../../requests";
 import { EpisodeMetadata, EpisodeRail, SeasonSelector } from "./episodes";
 import {
-  DownloadIcon,
   DownloadedStatus,
   FullScreenShell,
   PlaybackHint,
   ProgressBar,
   WatchNowControl,
 } from "./playback";
+import { RequestStatusIndicator } from "./request-status-indicator";
 
 export function EpisodeDetailView({
   media,
@@ -34,7 +35,7 @@ export function EpisodeDetailView({
   sourcesOpen,
   startingPlayback,
   sourcesLoading,
-  onDownload,
+  requestStatus,
 }: {
   media: TitleMedia;
   episode: Episode;
@@ -52,7 +53,7 @@ export function EpisodeDetailView({
   sourcesOpen: boolean;
   startingPlayback: boolean;
   sourcesLoading: boolean;
-  onDownload: () => void;
+  requestStatus: ItemRequestStatus | undefined;
 }) {
   return (
     <FullScreenShell onBack={onBack} backLabel="Back to episodes">
@@ -93,15 +94,10 @@ export function EpisodeDetailView({
               />
               {episode.availability === "local" ? (
                 <DownloadedStatus />
-              ) : (
-                <button
-                  type="button"
-                  className={buttonClass}
-                  onClick={onDownload}
-                >
-                  <DownloadIcon /> Download
-                </button>
-              )}
+              ) : null}
+              {episode.availability !== "local" ? (
+                <RequestStatusIndicator status={requestStatus} seasonNumber={episode.seasonNumber} />
+              ) : null}
             </div>
             <PlaybackHint progress={progress} />
           </div>

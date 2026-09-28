@@ -114,6 +114,39 @@ identities; web2 does not need them for catalogue cards.
 Availability-bearing rails, collections and seasons use a 30-second client
 freshness window. These are read caches, not a live availability subscription.
 
+## Media requests
+
+`POST /v1/requests` submits a Seerr request using its configured default
+service. `GET /v1/requests/profiles/{movie|series}` returns the quality profiles
+of the default non-4K Radarr or Sonarr server as `{serverId, serverName,
+defaultProfileId, profiles: [{id, name}]}`. The user chooses a profile in the
+request form. The POST body is `{kind: "movie"|"series", tmdbId: number,
+profileId: number, seasonNumbers?: number[]}`. Movies omit `seasonNumbers`;
+series require one or more distinct positive regular season numbers. Reel
+validates the profile against Seerr's current default server, then forwards its
+`serverId` and `profileId`. The response is
+`201` with `{id, requestStatus}` after Seerr creates a request. Invalid input is
+`400`, duplicates or unavailable seasons are `409`, permission and quota errors
+are `403`, missing media is `404`, and unavailable profiles or upstream failures
+are `502`. Errors use
+the standard `{error: {code, message}}` envelope.
+
+`GET /v1/requests/{movie|series}/{tmdbId}` returns `{kind, tmdbId,
+requestStatus, requestedAt?, acquisitionStatus, transferStatus?, seasons}`.
+`seasons` is empty for movies and contains `{seasonNumber, requestStatus,
+requestedAt?, acquisitionStatus, transferStatus?}` entries for regular
+series seasons. Request states are `none`, `pending`, `approved`, `declined`,
+`failed`, `completed`, or `unknown`. Acquisition states are `unknown`, `pending`,
+`processing`, `partiallyAvailable`, `available`, `blocklisted`, or `deleted`.
+Request and acquisition states reflect Seerr's view. When Seerr reports
+`processing`, Reel checks the linked Radarr or Sonarr queue and may return
+`transferStatus` as `waiting`, `queued`, `downloading`, `importing`, or
+`attention`. If the queue cannot be checked, the field is omitted; Reel does
+not guess that a download is active. `requestedAt` is the date of the latest
+non-4K request. None of these fields changes Jellyfin `availability`.
+An item becomes locally playable only when Jellyfin exposes the exact movie or
+episode. Reel keeps these status reads separate from cached catalogue metadata.
+
 ## Details and extension boundary
 
 Details include the card identity and artwork, synopsis and title-specific facts.

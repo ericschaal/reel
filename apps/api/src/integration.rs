@@ -15,6 +15,8 @@ pub enum Integration {
     AioStreams,
     Jellyfin,
     Seerr,
+    Radarr,
+    Sonarr,
 }
 
 impl fmt::Display for Integration {
@@ -23,6 +25,8 @@ impl fmt::Display for Integration {
             Self::AioStreams => formatter.write_str("AIOStreams"),
             Self::Jellyfin => formatter.write_str("Jellyfin"),
             Self::Seerr => formatter.write_str("Seerr"),
+            Self::Radarr => formatter.write_str("Radarr"),
+            Self::Sonarr => formatter.write_str("Sonarr"),
         }
     }
 }
@@ -153,6 +157,19 @@ impl JsonClient {
         self.decode_json(response).await
     }
 
+    pub(crate) async fn post_json_created<B, T>(&self, path: &str, body: &B) -> Result<T>
+    where
+        B: Serialize + ?Sized,
+        T: DeserializeOwned,
+    {
+        let request = self.http.post(self.endpoint(path)?).json(body);
+        let response = self.send("POST", path, request).await?;
+        if response.status() != StatusCode::CREATED {
+            return Err(self.rejected(response).await?);
+        }
+        self.decode_json(response).await
+    }
+
     pub(crate) fn endpoint(&self, path: &str) -> Result<Url> {
         if path.starts_with('/') || Url::parse(path).is_ok() {
             return Err(Error::Configuration {
@@ -242,11 +259,17 @@ impl JsonClient {
         })
     }
 
-    async fn checked(&self, mut response: Response) -> Result<Response> {
+    async fn checked(&self, response: Response) -> Result<Response> {
         let status = response.status();
         if status.is_success() {
             return Ok(response);
         }
+
+        Err(self.rejected(response).await?)
+    }
+
+    async fn rejected(&self, mut response: Response) -> Result<Error> {
+        let status = response.status();
 
         let mut bytes = Vec::with_capacity(MAX_ERROR_BODY_LENGTH);
         while bytes.len() < MAX_ERROR_BODY_LENGTH {
@@ -261,7 +284,7 @@ impl JsonClient {
             bytes.extend_from_slice(&chunk[..chunk.len().min(remaining)]);
         }
 
-        Err(Error::Rejected {
+        Ok(Error::Rejected {
             integration: self.integration,
             status,
             body: String::from_utf8_lossy(&bytes).into_owned(),
