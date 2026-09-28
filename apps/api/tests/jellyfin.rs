@@ -18,7 +18,7 @@ fn client() -> Jellyfin {
     Jellyfin::new(base_url, api_key).expect("create Jellyfin client")
 }
 
-async fn playback_context_user_id(jellyfin: &Jellyfin) -> String {
+async fn playback_context_user_id(jellyfin: &Jellyfin) -> reel_api::jellyfin::JellyfinUserId {
     let username = std::env::var("JELLYFIN_USERNAME")
         .expect("JELLYFIN_USERNAME must be set for Jellyfin E2E tests");
     let users = jellyfin.users().await.expect("list Jellyfin users");

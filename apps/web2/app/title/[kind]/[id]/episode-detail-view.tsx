@@ -12,9 +12,9 @@ import {
   DownloadIcon,
   DownloadedStatus,
   FullScreenShell,
-  PlaybackControl,
   PlaybackHint,
   ProgressBar,
+  WatchNowControl,
 } from "./playback";
 
 export function EpisodeDetailView({
@@ -29,7 +29,11 @@ export function EpisodeDetailView({
   onBack,
   onSelectSeason,
   onOpenEpisode,
-  onPlayLocal,
+  onPlay,
+  onOpenSources,
+  sourcesOpen,
+  startingPlayback,
+  sourcesLoading,
   onDownload,
 }: {
   media: TitleMedia;
@@ -43,11 +47,13 @@ export function EpisodeDetailView({
   onBack: () => void;
   onSelectSeason: (seasonNumber: number) => void;
   onOpenEpisode: (episode: Episode) => void;
-  onPlayLocal: (resumeSeconds?: number) => void;
+  onPlay: (resumeSeconds?: number) => void;
+  onOpenSources: (resumeSeconds?: number) => void;
+  sourcesOpen: boolean;
+  startingPlayback: boolean;
+  sourcesLoading: boolean;
   onDownload: () => void;
 }) {
-  const localCopy = episode.availability === "local";
-
   return (
     <FullScreenShell onBack={onBack} backLabel="Back to episodes">
       <main className={`mx-auto max-w-[1400px] py-10 sm:py-16 ${pageGutter}`}>
@@ -77,10 +83,13 @@ export function EpisodeDetailView({
               {episode.overview || `An episode of ${media.title}.`}
             </p>
             <div className="mt-7 flex flex-wrap items-stretch gap-3">
-              <PlaybackControl
+              <WatchNowControl
                 progress={progress}
-                disabled={!localCopy}
-                onPlay={onPlayLocal}
+                onPlay={onPlay}
+                onOpenSources={onOpenSources}
+                sourcesOpen={sourcesOpen}
+                sourcesLoading={sourcesLoading}
+                startingPlayback={startingPlayback}
               />
               {episode.availability === "local" ? (
                 <DownloadedStatus />

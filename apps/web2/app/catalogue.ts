@@ -16,6 +16,7 @@ export type MediaCard = {
 };
 
 export type TitleMedia = Omit<MediaCard, "runtimeMinutes" | "numberOfSeasons"> & {
+  imdbId: string | null;
   overview: string | null;
 };
 
@@ -100,6 +101,7 @@ export type SeriesDetails = {
   availability: "episodeBased";
   id: string;
   tmdbId: number;
+  imdbId: string | null;
   title: string;
   overview: string | null;
   year: number | null;

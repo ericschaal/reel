@@ -384,7 +384,7 @@ async fn serves_series_seasons_and_episodes_as_reel_media() {
     assert!(
         season_details.episodes.iter().all(|episode| {
             episode.season_number == season.season_number
-                && episode.id == format!("tmdb:episode:{}", episode.tmdb_id)
+                && episode.id == reel_api::media::CatalogueId::Episode(episode.tmdb_id)
         }),
         "episodes should have canonical TMDB identities within the requested season"
     );
@@ -538,7 +538,7 @@ async fn studio_cards_open_paginated_movie_collections() {
     let studios = category_cards(&catalogue, "studios");
     assert_eq!(
         studios.iter().map(|studio| studio.id).collect::<Vec<_>>(),
-        [2, 127928, 34, 174, 33, 4, 3, 521, 420, 9993, 41077]
+        [2, 127_928, 34, 174, 33, 4, 3, 521, 420, 9_993, 41_077]
     );
     assert_eq!(
         studios

@@ -25,33 +25,35 @@ It is intentionally narrower than the product overview in `README.md`.
 
 **Playback source**
 : A specific local or remote way to play canonical media, such as a Jellyfin
-  media item or a Stremio stream candidate.
+  media item or an AIOStreams direct-stream candidate.
 
 **Playback Resolution**
 : The Reel capability that chooses or resolves a playback source for exact
   canonical media. It prefers a local copy unless the user explicitly overrides
   that preference. When no local copy is available, it tries remote candidates
-  in the order returned by the configured Stremio add-on. A user may explicitly
+  in the order returned by configured AIOStreams. A user may explicitly
   override either choice. Playback Resolution reports actionable failures rather
   than switching sources silently after a source has been selected.
 
 **Candidate order**
-: The priority order of remote playback sources returned by the configured
-  Stremio add-on. Reel does not independently rank candidates in the initial
+: The priority order of remote playback sources returned by configured
+  AIOStreams. Reel does not independently rank candidates in the initial
   implementation. It preserves this order for automatic resolution and for the
   user's source picker.
 
 **Source discovery**
-: The side-effect-free retrieval of available playback sources. Opening **Other
-  Sources** may contact configured add-ons, but it must not activate a torrent or
-  ask the Stremio streaming server to resolve a candidate.
+: The side-effect-free retrieval of available playback sources. Reel starts it
+  in the background when a movie detail or exact episode detail is opened, then
+  deduplicates and briefly caches the ordered result for the source picker. It
+  may contact configured add-ons through AIOStreams, but it must not access a
+  returned media URL or activate a torrent.
 
 **Source activation**
 : Turning a selected playback source into a playback descriptor. Activation may
-  contact Jellyfin or the Stremio streaming server and may start remote streaming
-  work. Reel performs it only in response to **Watch Now** or an explicit source
-  selection. Activation considers the requesting player's capabilities when
-  asking Jellyfin for playback information.
+  contact Jellyfin or create a scoped direct-stream proxy session. Reel performs
+  it only in response to **Watch Now** or an explicit source selection.
+  Activation considers the requesting player's capabilities when asking
+  Jellyfin for playback information.
 
 **Resolution fallback**
 : If a candidate cannot be turned into a playback descriptor, Playback
@@ -61,11 +63,10 @@ It is intentionally narrower than the product overview in `README.md`.
   Next Source** or **Choose Source** action.
 
 **Playback descriptor**
-: The normalized instructions a Reel client needs to start playback. It may
-  include a playable URL, request headers, format information, tracks, and the
-  data needed to report progress. For the MVP, a descriptor sent to a trusted
-  Reel client may contain upstream credential material required to play the
-  selected source. Its exact shape is not yet decided.
+: The normalized instructions a Reel client needs to start playback. It includes
+  a scoped Reel media URL and may include format information, tracks, and the
+  data needed to report progress. Upstream URLs, request headers, and credentials
+  remain in backend session state.
 
 **Player capabilities**
 : A normalized, dynamically reported description of what the requesting player

@@ -41,6 +41,7 @@ pub struct DiscoverResult {
 }
 
 impl DiscoverResult {
+    #[must_use]
     pub fn display_title(&self) -> Option<&str> {
         self.title.as_deref().or(self.name.as_deref())
     }
@@ -221,6 +222,7 @@ pub struct MovieDetails {
 #[serde(rename_all = "camelCase")]
 pub struct SeriesDetails {
     pub id: TmdbId,
+    pub external_ids: Option<ExternalIds>,
     pub name: String,
     pub original_name: Option<String>,
     pub overview: Option<String>,
@@ -239,6 +241,12 @@ pub struct SeriesDetails {
     #[serde(default)]
     pub seasons: Vec<Season>,
     pub media_info: Option<MediaInfo>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalIds {
+    pub imdb_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]

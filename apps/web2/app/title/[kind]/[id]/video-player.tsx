@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useReducer,
   useRef,
   useState,
   type CSSProperties,
@@ -15,12 +16,19 @@ import type {
   PlaybackTrack,
   PlaybackTrackSelection,
 } from "./playback";
+import {
+  createTimelineStore,
+  initialPlayerState,
+  playerReducer,
+} from "./video-player-state";
+import { PlayerTimeline, PlayerTimeSummary } from "./video-player-timeline";
+import {
+  PlayerSettings,
+  type PlayerMenu,
+  type TrackChoice,
+} from "./video-player-settings";
 
 type ReadyPlayback = Extract<ActivePlayback, { status: "ready" }>;
-type PlayerMenu = "settings" | "audio" | "subtitles" | "speed" | null;
-type TrackChoice = { id: number; label: string; language?: string };
-
-const PLAYBACK_RATES = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
 export function ReelVideoPlayer({
   media,
@@ -37,29 +45,38 @@ export function ReelVideoPlayer({
   ) => Promise<PlaybackDescriptor>;
 }) {
   const volumeDraggingRef = useRef(false);
+  const lastAudibleVolumeRef = useRef(1);
   const playerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const controlsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hlsRef = useRef<import("hls.js").default | null>(null);
   const resumePositionRef = useRef(playback.resumeSeconds ?? 0);
   const resumeAfterSwitchRef = useRef<boolean | null>(true);
   const frameCallbackRef = useRef<number | null>(null);
+  const switchInFlightRef = useRef(false);
   const trackSwitchPhaseRef = useRef<"activating" | "loading" | null>(null);
-  const [descriptor, setDescriptor] = useState(playback.descriptor);
-  const [playerError, setPlayerError] = useState<string | null>(null);
-  const [trackSwitchError, setTrackSwitchError] = useState<string | null>(null);
-  const [isSwitchingTracks, setIsSwitchingTracks] = useState(false);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [isBuffering, setIsBuffering] = useState(true);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(
-    descriptor.durationSeconds ?? 0,
+  const [timelineStore] = useState(() =>
+    createTimelineStore(playback.descriptor.durationSeconds ?? 0),
   );
+  const [descriptor, setDescriptor] = useState(playback.descriptor);
+  const [playerState, dispatchPlayer] = useReducer(
+    playerReducer,
+    initialPlayerState,
+  );
+  const { isPlaying, playerError, trackSwitchError } = playerState;
+  const isSwitchingTracks =
+    playerState.phase === "activatingTrack" ||
+    playerState.phase === "loadingTrack";
+  const isLoadingTrackMedia = playerState.phase === "loadingTrack";
+  const isBuffering =
+    playerState.phase === "loading" || playerState.phase === "buffering";
   const [volume, setVolume] = useState(1);
   const [isMuted, setIsMuted] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [controlsVisible, setControlsVisible] = useState(true);
+  const [controlNotice, setControlNotice] = useState<string | null>(null);
   const [menu, setMenu] = useState<PlayerMenu>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const descriptorAudioTracks = descriptor.audioTracks;
@@ -92,6 +109,7 @@ export function ReelVideoPlayer({
   const context = episode
     ? `${media.title} · S${episode.seasonNumber} E${episode.episodeNumber}`
     : null;
+  const sourceName = descriptor.source === "aioStreams" ? "AIOStreams" : "Jellyfin";
 
   const revealControls = useCallback((keepOpen = false) => {
     setControlsVisible(true);
@@ -104,12 +122,22 @@ export function ReelVideoPlayer({
     }
   }, []);
 
+  const showControlNotice = useCallback((message: string) => {
+    if (noticeTimer.current) clearTimeout(noticeTimer.current);
+    setControlNotice(message);
+    noticeTimer.current = setTimeout(() => setControlNotice(null), 4000);
+  }, []);
+  const closeMenu = useCallback(() => setMenu(null), []);
+
   const togglePlay = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
     if (video.paused) {
       void video.play().catch(() => {
-        setPlayerError("Playback could not be resumed.");
+        dispatchPlayer({
+          type: "mediaFailed",
+          message: "Playback could not be resumed.",
+        });
       });
     } else {
       video.pause();
@@ -121,8 +149,8 @@ export function ReelVideoPlayer({
     const video = videoRef.current;
     if (!video || !Number.isFinite(seconds)) return;
     video.currentTime = Math.min(Math.max(seconds, 0), video.duration || seconds);
-    setCurrentTime(video.currentTime);
-  }, []);
+    timelineStore.update({ currentTime: video.currentTime });
+  }, [timelineStore]);
 
   const seekBy = useCallback(
     (seconds: number) => {
@@ -137,20 +165,31 @@ export function ReelVideoPlayer({
   const toggleMute = useCallback(() => {
     const video = videoRef.current;
     if (!video) return;
-    video.muted = !video.muted;
+    if (video.muted || video.volume === 0) {
+      if (video.volume === 0) video.volume = lastAudibleVolumeRef.current;
+      video.muted = false;
+    } else {
+      lastAudibleVolumeRef.current = video.volume;
+      video.muted = true;
+    }
+    setVolume(video.volume);
     setIsMuted(video.muted);
     revealControls();
   }, [revealControls]);
 
-  const toggleFullscreen = useCallback(() => {
+  const toggleFullscreen = useCallback(async () => {
     const player = playerRef.current;
     if (!player) return;
-    if (document.fullscreenElement) {
-      void document.exitFullscreen();
-    } else {
-      void player.requestFullscreen();
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await player.requestFullscreen();
+      }
+    } catch {
+      showControlNotice("Fullscreen is not available in this browser.");
     }
-  }, []);
+  }, [showControlNotice]);
 
   const captureCurrentFrame = useCallback(() => {
     const video = videoRef.current;
@@ -188,8 +227,9 @@ export function ReelVideoPlayer({
       if (trackSwitchPhaseRef.current === "activating") return;
       frameCallbackRef.current = null;
       trackSwitchPhaseRef.current = null;
+      switchInFlightRef.current = false;
       hideFrozenFrame();
-      setIsSwitchingTracks(false);
+      dispatchPlayer({ type: "trackPresented" });
     };
     if (frameCallbackRef.current !== null) {
       video.cancelVideoFrameCallback(frameCallbackRef.current);
@@ -209,25 +249,30 @@ export function ReelVideoPlayer({
   const switchDescriptorTracks = useCallback(
     async (selection: PlaybackTrackSelection) => {
       const video = videoRef.current;
-      if (!video || isSwitchingTracks) return;
-      const position = video.currentTime;
-      const shouldResume = !video.paused;
+      if (!video || switchInFlightRef.current) return;
+      const activationPosition = video.currentTime;
+      switchInFlightRef.current = true;
       trackSwitchPhaseRef.current = "activating";
       if (frameCallbackRef.current !== null) {
         video.cancelVideoFrameCallback(frameCallbackRef.current);
         frameCallbackRef.current = null;
       }
-      captureCurrentFrame();
-      video.pause();
-      setIsSwitchingTracks(true);
-      setTrackSwitchError(null);
+      dispatchPlayer({ type: "activateTrack" });
       try {
-        const nextDescriptor = await onSelectTracks(position, selection);
+        const nextDescriptor = await onSelectTracks(activationPosition, selection);
         if (videoRef.current !== video) return;
-        resumePositionRef.current = position;
+        const handoffPosition = video.currentTime;
+        const shouldResume = !video.paused;
+        captureCurrentFrame();
+        video.pause();
+        dispatchPlayer({ type: "loadTrack" });
+        resumePositionRef.current = handoffPosition;
         resumeAfterSwitchRef.current = shouldResume;
         setDescriptor(nextDescriptor);
-        setDuration(nextDescriptor.durationSeconds ?? duration);
+        timelineStore.update({
+          duration:
+            nextDescriptor.durationSeconds ?? timelineStore.getSnapshot().duration,
+        });
         setAudioTracks(
           nextDescriptor.audioTracks.map((track) => ({
             id: track.index,
@@ -247,24 +292,24 @@ export function ReelVideoPlayer({
         setMenu(null);
       } catch (reason) {
         if (videoRef.current !== video) return;
+        switchInFlightRef.current = false;
         trackSwitchPhaseRef.current = null;
         hideFrozenFrame();
-        setIsSwitchingTracks(false);
-        if (shouldResume) void video.play().catch(() => setControlsVisible(true));
-        setTrackSwitchError(
-          reason instanceof Error
-            ? reason.message
-            : "The track could not be changed.",
-        );
+        dispatchPlayer({
+          type: "trackFailed",
+          message:
+            reason instanceof Error
+              ? reason.message
+              : "The track could not be changed.",
+        });
       }
     },
     [
       captureCurrentFrame,
-      duration,
       hideFrozenFrame,
-      isSwitchingTracks,
       onSelectTracks,
       selectedAudio,
+      timelineStore,
     ],
   );
 
@@ -373,6 +418,8 @@ export function ReelVideoPlayer({
           });
           hlsRef.current = hls;
           destroyHls = () => hls.destroy();
+          let networkRecoveryAttempts = 0;
+          let mediaRecoveryAttempts = 0;
 
           const syncHlsTracks = () => {
             if (!descriptorAudioTracks.length) {
@@ -403,7 +450,10 @@ export function ReelVideoPlayer({
             }
           };
 
-          hls.on(Hls.Events.MANIFEST_PARSED, syncHlsTracks);
+          hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            networkRecoveryAttempts = 0;
+            syncHlsTracks();
+          });
           hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, () => {
             // hls.js applies its default after this event; restore our selection
             // after that step, including when a new rendition group appears.
@@ -418,20 +468,42 @@ export function ReelVideoPlayer({
             if (!descriptorSubtitleTracks.length) setSelectedSubtitle(data.id);
           });
           hls.on(Hls.Events.ERROR, (_event, data) => {
-            if (data.fatal) {
-              setPlayerError("The Jellyfin stream stopped unexpectedly.");
+            if (!data.fatal) return;
+            if (
+              data.type === Hls.ErrorTypes.NETWORK_ERROR &&
+              networkRecoveryAttempts < 2
+            ) {
+              networkRecoveryAttempts += 1;
+              hls.startLoad();
+              return;
             }
+            if (
+              data.type === Hls.ErrorTypes.MEDIA_ERROR &&
+              mediaRecoveryAttempts < 1
+            ) {
+              mediaRecoveryAttempts += 1;
+              hls.recoverMediaError();
+              return;
+            }
+            switchInFlightRef.current = false;
+            dispatchPlayer({
+              type: "mediaFailed",
+              message: `${sourceName} playback stopped unexpectedly.`,
+            });
           });
           hls.loadSource(descriptor.mediaUrl);
           hls.attachMedia(video);
         })
         .catch((reason: unknown) => {
           if (!cancelled) {
-            setPlayerError(
-              reason instanceof Error
-                ? reason.message
-                : "The video player could not start.",
-            );
+            switchInFlightRef.current = false;
+            dispatchPlayer({
+              type: "mediaFailed",
+              message:
+                reason instanceof Error
+                  ? reason.message
+                  : "The video player could not start.",
+            });
           }
         });
     }
@@ -456,6 +528,7 @@ export function ReelVideoPlayer({
     descriptor.selectedSubtitleIndex,
     descriptorAudioTracks.length,
     descriptorSubtitleTracks,
+    sourceName,
   ]);
 
   useEffect(() => {
@@ -510,6 +583,7 @@ export function ReelVideoPlayer({
   useEffect(() => {
     return () => {
       if (controlsTimer.current) clearTimeout(controlsTimer.current);
+      if (noticeTimer.current) clearTimeout(noticeTimer.current);
     };
   }, []);
 
@@ -532,6 +606,7 @@ export function ReelVideoPlayer({
     if (!video) return;
     nextVolume = Math.min(1, Math.max(0, nextVolume));
     video.volume = nextVolume;
+    if (nextVolume > 0) lastAudibleVolumeRef.current = nextVolume;
     video.muted = nextVolume === 0;
     setVolume(nextVolume);
     setIsMuted(video.muted);
@@ -586,10 +661,14 @@ export function ReelVideoPlayer({
   async function togglePictureInPicture() {
     const video = videoRef.current;
     if (!video || !("pictureInPictureEnabled" in document)) return;
-    if (document.pictureInPictureElement) {
-      await document.exitPictureInPicture();
-    } else if ("requestPictureInPicture" in video) {
-      await video.requestPictureInPicture();
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+      } else if ("requestPictureInPicture" in video) {
+        await video.requestPictureInPicture();
+      }
+    } catch {
+      showControlNotice("Picture in picture is not available in this browser.");
     }
   }
 
@@ -597,7 +676,6 @@ export function ReelVideoPlayer({
     if (event.target === event.currentTarget) togglePlay();
   }
 
-  const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
   const volumeProgress = isMuted ? 0 : volume * 100;
   const hasPictureInPicture =
     typeof document !== "undefined" && "pictureInPictureEnabled" in document;
@@ -618,23 +696,22 @@ export function ReelVideoPlayer({
         className="h-full w-full object-contain"
         playsInline
         onClick={() => menu ? setMenu(null) : togglePlay()}
-        onDoubleClick={toggleFullscreen}
+        onDoubleClick={() => void toggleFullscreen()}
         onPlay={() => {
-          setIsPlaying(true);
-          setIsBuffering(false);
+          dispatchPlayer({ type: "play" });
           revealControls();
         }}
         onPause={() => {
-          setIsPlaying(false);
+          dispatchPlayer({ type: "pause" });
           setControlsVisible(true);
         }}
-        onWaiting={() => setIsBuffering(true)}
-        onPlaying={() => setIsBuffering(false)}
+        onWaiting={() => dispatchPlayer({ type: "waiting" })}
+        onPlaying={() => dispatchPlayer({ type: "canPlay" })}
         onLoadedData={(event) => revealDecodedFrame(event.currentTarget)}
         onSeeked={(event) => revealDecodedFrame(event.currentTarget)}
         onCanPlay={(event) => {
           if (trackSwitchPhaseRef.current === "activating") return;
-          setIsBuffering(false);
+          dispatchPlayer({ type: "canPlay" });
           const shouldResume = resumeAfterSwitchRef.current;
           resumeAfterSwitchRef.current = null;
           if (shouldResume) {
@@ -650,16 +727,23 @@ export function ReelVideoPlayer({
           }
           setPlaybackRate(video.playbackRate);
         }}
-        onDurationChange={(event) => setDuration(event.currentTarget.duration || 0)}
-        onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
+        onDurationChange={(event) =>
+          timelineStore.update({ duration: event.currentTarget.duration || 0 })
+        }
+        onTimeUpdate={(event) =>
+          timelineStore.update({ currentTime: event.currentTarget.currentTime })
+        }
         onVolumeChange={(event) => {
           setVolume(event.currentTarget.volume);
           setIsMuted(event.currentTarget.muted);
         }}
-        onEnded={() => setIsPlaying(false)}
+        onEnded={() => dispatchPlayer({ type: "pause" })}
         onError={() => {
-          setIsSwitchingTracks(false);
-          setPlayerError("The browser could not play this Jellyfin stream.");
+          switchInFlightRef.current = false;
+          dispatchPlayer({
+            type: "mediaFailed",
+            message: `The browser could not play this ${sourceName} stream.`,
+          });
         }}
       />
 
@@ -669,11 +753,11 @@ export function ReelVideoPlayer({
         aria-hidden="true"
       />
 
-      {(isBuffering || isSwitchingTracks) && !playerError ? (
+      {(isBuffering || isLoadingTrackMedia) && !playerError ? (
         <div
           className="pointer-events-none absolute inset-0 grid place-items-center"
           role="status"
-          aria-label={isSwitchingTracks ? "Switching track" : "Buffering"}
+          aria-label={isLoadingTrackMedia ? "Switching track" : "Buffering"}
         >
           <span className="size-14 animate-spin rounded-full border-2 border-white/25 border-t-accent" />
         </div>
@@ -705,6 +789,15 @@ export function ReelVideoPlayer({
             </button>
           </div>
         </div>
+      ) : null}
+
+      {controlNotice && !playerError ? (
+        <p
+          className="absolute top-24 left-1/2 z-20 -translate-x-1/2 rounded-full bg-black/75 px-4 py-2 text-sm text-white shadow-xl"
+          role="status"
+        >
+          {controlNotice}
+        </p>
       ) : null}
 
       <div
@@ -741,28 +834,13 @@ export function ReelVideoPlayer({
             onAudio={chooseAudio}
             onSubtitle={chooseSubtitle}
             onPlaybackRate={choosePlaybackRate}
-            onClose={() => setMenu(null)}
+            onClose={closeMenu}
             error={trackSwitchError}
             busy={isSwitchingTracks}
           />
         ) : null}
 
-        <div className="mb-2 flex items-center justify-between text-xs font-medium text-white/70">
-          <span>{formatPlayerTime(currentTime)}</span>
-          <span>-{formatPlayerTime(Math.max(0, duration - currentTime))}</span>
-        </div>
-        <input
-          type="range"
-          className="player-range player-progress-range w-full"
-          min="0"
-          max={duration || 0}
-          step="0.1"
-          value={Math.min(currentTime, duration || 0)}
-          style={{ "--range-progress": `${progress}%` } as CSSProperties}
-          aria-label="Seek through video"
-          aria-valuetext={`${formatPlayerTime(currentTime)} of ${formatPlayerTime(duration)}`}
-          onChange={(event) => seekTo(Number(event.currentTarget.value))}
-        />
+        <PlayerTimeline store={timelineStore} onSeek={seekTo} />
 
         <div className="mt-3 flex items-center gap-1 sm:gap-2">
           <button type="button" className={iconButtonClass} onClick={togglePlay} aria-label={isPlaying ? "Pause" : "Play"}>
@@ -797,7 +875,7 @@ export function ReelVideoPlayer({
             />
           </div>
 
-          <span className="ml-1 hidden text-xs font-medium text-white/65 md:block">{formatPlayerTime(currentTime)} / {formatPlayerTime(duration)}</span>
+          <PlayerTimeSummary store={timelineStore} />
 
           <div className="ml-auto flex items-center gap-1 sm:gap-2">
             <button
@@ -815,7 +893,7 @@ export function ReelVideoPlayer({
                 <PictureInPictureIcon className="size-6" />
               </button>
             ) : null}
-            <button type="button" className={iconButtonClass} onClick={toggleFullscreen} aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}>
+            <button type="button" className={iconButtonClass} onClick={() => void toggleFullscreen()} aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}>
               <FullscreenIcon className="size-6" active={isFullscreen} />
             </button>
           </div>
@@ -823,148 +901,6 @@ export function ReelVideoPlayer({
       </div>
     </div>
   );
-}
-
-function PlayerSettings({
-  menu, audioTracks, subtitleTracks, selectedAudio, selectedSubtitle,
-  playbackRate, onMenuChange, onAudio, onSubtitle, onPlaybackRate,
-  onClose, error, busy,
-}: {
-  menu: Exclude<PlayerMenu, null>;
-  audioTracks: TrackChoice[];
-  subtitleTracks: TrackChoice[];
-  selectedAudio: number;
-  selectedSubtitle: number;
-  playbackRate: number;
-  onMenuChange: (menu: Exclude<PlayerMenu, null>) => void;
-  onAudio: (id: number) => void;
-  onSubtitle: (id: number) => void;
-  onPlaybackRate: (rate: number) => void;
-  onClose: () => void;
-  error: string | null;
-  busy: boolean;
-}) {
-  const [search, setSearch] = useState({ category: menu, text: "" });
-  const query = search.category === menu ? search.text : "";
-  const matches = (track: TrackChoice) => track.label.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase());
-  const visibleAudioTracks = audioTracks.filter(matches);
-  const visibleSubtitleTracks = subtitleTracks.filter(matches);
-  const searchable = menu === "audio" ? audioTracks.length > 6 : menu === "subtitles" && subtitleTracks.length > 6;
-  const panelRef = useRef<HTMLElement>(null);
-  useEffect(() => {
-    const opener = document.activeElement as HTMLElement | null;
-    return () => { if (opener?.isConnected) opener.focus(); };
-  }, []);
-
-  useEffect(() => {
-    panelRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
-  }, [menu]);
-
-  useEffect(() => {
-    const dismiss = (event: Event) => {
-      const target = event.target as HTMLElement;
-      if (!panelRef.current?.contains(target) && !target.closest('button[aria-label="Playback settings"]')) onClose();
-    };
-    document.addEventListener("click", dismiss);
-    return () => document.removeEventListener("click", dismiss);
-  }, [onClose]);
-
-  const categories = [
-    { key: "audio", label: "Audio", value: splitTrackLabel(audioTracks.find(track => track.id === selectedAudio)?.label ?? "Default")[0], icon: AudioIcon },
-    { key: "subtitles", label: "Subtitles", value: selectedSubtitle === -1 ? "Off" : splitTrackLabel(subtitleTracks.find(track => track.id === selectedSubtitle)?.label ?? "On")[0], icon: CaptionsIcon },
-    { key: "speed", label: "Speed", value: playbackRate === 1 ? "Normal" : `${playbackRate}×`, icon: SpeedIcon },
-  ] as const;
-  const title = categories.find(category => category.key === menu)?.label;
-
-  return (
-    <section ref={panelRef} role="dialog" className="player-settings absolute right-4 bottom-[calc(100%+0.75rem)] left-4 overflow-hidden rounded-2xl border border-line bg-panel/70 p-1.5 shadow-[0_8px_32px_#0005] backdrop-blur-xl sm:right-7 sm:left-auto sm:w-80 lg:right-10" aria-label="Playback settings"
-      onKeyDown={event => {
-        const target = event.target as HTMLElement;
-        if (target.matches("input")) return;
-        if (event.key === "ArrowLeft" && menu !== "settings") {
-          event.preventDefault();
-          onMenuChange("settings");
-          return;
-        }
-        if (event.key === "ArrowRight" && menu === "settings") {
-          event.preventDefault();
-          target.closest("button")?.click();
-          return;
-        }
-        if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
-        event.preventDefault();
-        const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"));
-        const index = buttons.indexOf(target.closest("button") as HTMLButtonElement);
-        const next = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : (index + (event.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length;
-        buttons[next]?.focus();
-      }}
-    >
-      {menu === "settings" ? <div className="py-0.5">
-        {categories.map(({ key, label, value, icon: Icon }) => (
-          <button key={key} type="button" aria-label={label} onClick={() => onMenuChange(key)} className="flex min-h-12 w-full items-center gap-3 rounded-xl px-3 text-left transition-colors hover:bg-white/8 focus-visible:outline-offset-[-2px]">
-            <Icon className="size-[18px] shrink-0 text-white/75" />
-            <span className="text-sm font-medium text-ink">{label}</span>
-            <span className="ml-auto max-w-28 truncate text-[13px] text-muted">{value}</span>
-            <ChevronIcon className="size-3.5 shrink-0 text-white/35" />
-          </button>
-        ))}
-      </div> : <>
-        <div className="mb-1 border-b border-white/8 pb-1">
-          <button type="button" aria-label="Back to settings" onClick={() => onMenuChange("settings")} className="flex min-h-10 w-full items-center gap-2 rounded-xl px-2 text-sm font-semibold text-white/90 transition-colors hover:bg-white/5 focus-visible:outline-offset-[-2px]">
-            <ChevronIcon className="size-4 rotate-180 text-white/55" />
-            {title}
-          </button>
-        </div>
-        <div aria-busy={busy} className="player-settings-content flex min-h-0 min-w-0 flex-col">
-          {busy ? <span role="status" className="block shrink-0 px-3 py-2 text-xs text-white/60">Switching…</span> : null}
-          {searchable ? <input type="search" aria-label="Search tracks" placeholder="Search languages" value={query} onChange={event => setSearch({ category: menu, text: event.currentTarget.value })} className="mx-1 my-1 h-9 shrink-0 rounded-lg border-0 bg-black/20 px-3 text-[13px] text-white placeholder:text-white/35 focus-visible:outline-offset-[-2px]" /> : null}
-          <div key={menu} className="player-settings-options min-h-0 overflow-y-auto overscroll-contain">
-          {query && !(menu === "audio" ? visibleAudioTracks : visibleSubtitleTracks).length ? <p role="status" className="px-2 py-3 text-sm text-white/50">No matching tracks.</p> : null}
-          {error ? <p className="mb-2 rounded-lg bg-red-400/10 px-3 py-2 text-xs leading-5 text-red-200" role="alert">{error}</p> : null}
-          {menu === "audio" ? (
-            audioTracks.length ? visibleAudioTracks.map(track => (
-              <Choice key={track.id} selected={selectedAudio === track.id} label={track.label} disabled={busy} onClick={() => onAudio(track.id)} />
-            )) : <EmptyTrackState label="The stream uses its default audio track." />
-          ) : null}
-          {menu === "subtitles" ? <>
-            <Choice selected={selectedSubtitle === -1} label="Off" disabled={busy} onClick={() => onSubtitle(-1)} />
-            {subtitleTracks.length ? visibleSubtitleTracks.map(track => (
-              <Choice key={track.id} selected={selectedSubtitle === track.id} label={track.label} disabled={busy} onClick={() => onSubtitle(track.id)} />
-            )) : <EmptyTrackState label="No subtitle tracks are available." />}
-          </> : null}
-          {menu === "speed" ? PLAYBACK_RATES.map(rate => (
-            <Choice key={rate} selected={playbackRate === rate} label={rate === 1 ? "Normal" : `${rate}×`} disabled={false} onClick={() => onPlaybackRate(rate)} />
-          )) : null}
-          </div>
-        </div>
-      </>}
-
-    </section>
-  );
-}
-
-function splitTrackLabel(label: string) {
-  const parts = label.split(/\s+(?:-|·|–|—)\s+/);
-  // Some providers prefix the language with an accessibility variant.
-  if (parts.length > 1 && /^(SDH|forced|CC)$/i.test(parts[0])) {
-    [parts[0], parts[1]] = [parts[1], parts[0]];
-  }
-  return parts.filter((part, index) => index === 0 || !/^(SUBRIP|SRT|ASS|SSA|WEBVTT|VTT|PGSSUB)$/i.test(part));
-}
-
-function Choice({ selected, label, detail, disabled, onClick }: { selected: boolean; label: string; detail?: string; disabled: boolean; onClick: () => void }) {
-  const [title, ...metadata] = splitTrackLabel(label);
-  const description = metadata.join(" · ") || detail;
-  return (
-    <button type="button" aria-label={label} aria-pressed={selected} disabled={disabled} className="flex min-h-10 w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors hover:bg-white/8 focus-visible:outline-offset-[-2px] disabled:cursor-wait disabled:opacity-50" onClick={onClick}>
-      <span className="min-w-0 flex-1"><span className={`block text-sm font-medium [overflow-wrap:anywhere] ${selected ? "text-white" : "text-white/70"}`}>{title}</span>{description ? <span className="mt-1 block text-[11px] leading-4 text-white/40 [overflow-wrap:anywhere]">{description}</span> : null}</span>
-      {selected ? <CheckIcon className="size-4 shrink-0 text-accent" /> : null}
-    </button>
-  );
-}
-
-function EmptyTrackState({ label }: { label: string }) {
-  return <p className="px-2 py-3 text-sm leading-6 text-white/45">{label}</p>;
 }
 
 function findSubtitleTrackIndex(
@@ -988,17 +924,6 @@ function findSubtitleTrackIndex(
   return matching.length === 1 ? matching[0] : -1;
 }
 
-function formatPlayerTime(seconds: number) {
-  if (!Number.isFinite(seconds) || seconds < 0) return "0:00";
-  const whole = Math.floor(seconds);
-  const hours = Math.floor(whole / 3600);
-  const minutes = Math.floor((whole % 3600) / 60);
-  const remaining = whole % 60;
-  return hours > 0
-    ? `${hours}:${String(minutes).padStart(2, "0")}:${String(remaining).padStart(2, "0")}`
-    : `${minutes}:${String(remaining).padStart(2, "0")}`;
-}
-
 const iconButtonClass = "grid size-11 shrink-0 place-items-center rounded-full text-white transition hover:bg-white/12 active:scale-95";
 const textButtonClass = "inline-flex min-h-11 items-center gap-2 rounded-full px-3 text-sm font-semibold text-white transition hover:bg-white/12 active:scale-95";
 type IconProps = { className?: string };
@@ -1006,7 +931,6 @@ type IconProps = { className?: string };
 function PlayIcon({ className }: IconProps) { return <svg aria-hidden="true" className={`fill-current ${className ?? ""}`} viewBox="0 0 24 24"><path d="M7 4.8a1.2 1.2 0 0 1 1.84-1.01l11.18 7.2a1.2 1.2 0 0 1 0 2.02l-11.18 7.2A1.2 1.2 0 0 1 7 19.2V4.8Z" /></svg>; }
 function PauseIcon({ className }: IconProps) { return <svg aria-hidden="true" className={`fill-current ${className ?? ""}`} viewBox="0 0 24 24"><path d="M6.5 4h3v16h-3zM14.5 4h3v16h-3z" /></svg>; }
 function BackIcon({ className }: IconProps) { return <svg aria-hidden="true" className={`fill-none stroke-current ${className ?? ""}`} viewBox="0 0 24 24" strokeWidth="1.8"><path d="m14.5 5-7 7 7 7M8 12h11" /></svg>; }
-function CheckIcon({ className }: IconProps) { return <svg aria-hidden="true" className={`fill-none stroke-current ${className ?? ""}`} viewBox="0 0 16 16" strokeWidth="2.2"><path d="m3 8.5 3 3 7-7" /></svg>; }
 function AlertIcon({ className }: IconProps) { return <svg aria-hidden="true" className={`fill-none stroke-current ${className ?? ""}`} viewBox="0 0 24 24" strokeWidth="1.7"><path d="M12 3 2.8 20h18.4L12 3Z" /><path d="M12 9v5m0 3v.1" /></svg>; }
 function VolumeIcon({ className, muted }: IconProps & { muted: boolean }) { return <svg aria-hidden="true" className={`fill-none stroke-current ${className ?? ""}`} viewBox="0 0 24 24" strokeWidth="1.8"><path d="M5 9h4l4-4v14l-4-4H5V9Z" />{muted ? <path d="m17 9 4 6m0-6-4 6" /> : <><path d="M16 9.5a4 4 0 0 1 0 5" /><path d="M18.5 7a7.5 7.5 0 0 1 0 10" /></>}</svg>; }
 function ReplayIcon({ className, direction }: IconProps & { direction: "back" | "forward" }) { return <svg aria-hidden="true" className={`fill-none stroke-current ${className ?? ""}`} viewBox="0 0 24 24" strokeWidth="1.7"><path d={direction === "back" ? "M5 8V4m0 4h4M5.5 8A8 8 0 1 1 4 15" : "M19 8V4m0 4h-4m3.5 0A8 8 0 1 0 20 15"} /><text x="12" y="15" textAnchor="middle" className="fill-current stroke-none text-[7px] font-bold">10</text></svg>; }
@@ -1014,8 +938,3 @@ function PictureInPictureIcon({ className }: IconProps) { return <svg aria-hidde
 function FullscreenIcon({ className, active }: IconProps & { active: boolean }) { return <svg aria-hidden="true" className={`fill-none stroke-current ${className ?? ""}`} viewBox="0 0 24 24" strokeWidth="1.8">{active ? <path d="M9 4v5H4m16 0h-5V4M4 15h5v5m6 0v-5h5" /> : <path d="M9 4H4v5m16 0V4h-5M4 15v5h5m6 0h5v-5" />}</svg>; }
 
 function SettingsIcon({ className }: IconProps) { return <svg aria-hidden="true" className={`fill-none stroke-current ${className ?? ""}`} viewBox="0 0 24 24" strokeWidth="1.7"><path d="M4 7h7m4 0h5M4 17h3m4 0h9"/><circle cx="13" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg>; }
-
-function ChevronIcon({ className }: IconProps) { return <svg aria-hidden="true" className={`fill-none stroke-current ${className ?? ""}`} viewBox="0 0 16 16" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="m6 3 5 5-5 5" /></svg>; }
-function AudioIcon({ className }: IconProps) { return <svg aria-hidden="true" className={`fill-none stroke-current ${className ?? ""}`} viewBox="0 0 24 24" strokeWidth="1.7"><path d="M4 14v-3a8 8 0 0 1 16 0v3"/><rect x="3" y="12" width="4" height="8" rx="2"/><rect x="17" y="12" width="4" height="8" rx="2"/></svg>; }
-function CaptionsIcon({ className }: IconProps) { return <svg aria-hidden="true" className={`fill-none stroke-current ${className ?? ""}`} viewBox="0 0 24 24" strokeWidth="1.7"><rect x="2" y="5" width="20" height="14" rx="3"/><path d="M10 10a2.5 2.5 0 1 0 0 4m8-4a2.5 2.5 0 1 0 0 4"/></svg>; }
-function SpeedIcon({ className }: IconProps) { return <svg aria-hidden="true" className={`fill-none stroke-current ${className ?? ""}`} viewBox="0 0 24 24" strokeWidth="1.7"><circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/></svg>; }

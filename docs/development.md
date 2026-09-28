@@ -26,6 +26,10 @@ Run the backend:
 cargo run -p reel-api
 ```
 
+The backend loads `apps/api/.env.local` before `.env`; existing process
+environment variables still take precedence. Copy the required integration
+keys from `.env.example` when setting up a local instance.
+
 The backend listens on port 3000. Its initial health endpoint is available at
 `GET /healthz` and returns:
 

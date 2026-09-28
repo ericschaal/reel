@@ -8,8 +8,17 @@ export function useRouter() {
   };
 }
 
-export async function activateJellyfinPlayback() {
+export async function activatePlayback(
+  _media,
+  _episode,
+  resumeSeconds,
+  _signal,
+  _trackSelection,
+  sourceSelection,
+) {
   globalThis.__activationCalls += 1;
+  globalThis.__lastResumeSeconds = resumeSeconds;
+  globalThis.__lastSourceSelection = sourceSelection;
   return {
     sessionId: `session-${globalThis.__activationCalls}`,
     source: "jellyfin",
@@ -24,6 +33,9 @@ export async function activateJellyfinPlayback() {
   };
 }
 
-export function PlayerView({ playback }) {
-  return createElement("div", { "data-status": playback.status });
+export function PlayerView({ playback, onSelectTracks }) {
+  return createElement("div", {
+    "data-status": playback.status,
+    onClick: () => onSelectTracks(37, {}),
+  });
 }

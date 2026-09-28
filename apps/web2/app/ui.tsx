@@ -58,10 +58,12 @@ export function NavigationHeader({
   label,
   href,
   onBack,
+  autoFocusBack = false,
 }: {
   label: string;
   href?: string;
   onBack?: () => void;
+  autoFocusBack?: boolean;
 }) {
   const backClass =
     "inline-flex min-h-12 items-center gap-3 rounded-full border border-white/15 bg-white/8 pr-5 pl-3 text-sm font-semibold text-ink shadow-lg transition-colors hover:border-accent/60 hover:bg-white/12";
@@ -79,11 +81,16 @@ export function NavigationHeader({
       className={`sticky top-0 z-40 flex min-h-20 items-center justify-between border-b border-white/10 bg-background/85 py-3 backdrop-blur-2xl ${pageGutter}`}
     >
       {href ? (
-        <Link className={backClass} href={href}>
+        <Link className={backClass} href={href} autoFocus={autoFocusBack}>
           {content}
         </Link>
       ) : (
-        <button type="button" className={backClass} onClick={onBack}>
+        <button
+          type="button"
+          className={backClass}
+          onClick={onBack}
+          autoFocus={autoFocusBack}
+        >
           {content}
         </button>
       )}

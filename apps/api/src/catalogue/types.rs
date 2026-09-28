@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     integration::Integration,
-    media::{SeasonNumber, TmdbId},
+    media::{CatalogueId, ImdbTitleId, SeasonNumber, TmdbId},
 };
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -99,7 +99,7 @@ pub enum CatalogueItem {
 pub struct MediaCard {
     pub runtime_minutes: Option<u32>,
     pub number_of_seasons: Option<u32>,
-    pub id: String,
+    pub id: CatalogueId,
     pub tmdb_id: TmdbId,
     pub title: String,
     pub year: Option<i32>,
@@ -126,8 +126,9 @@ pub struct MovieDetailsResponse {
     pub kind: MediaKind,
     #[serde(default)]
     pub issues: Vec<CatalogueIssue>,
-    pub id: String,
+    pub id: CatalogueId,
     pub tmdb_id: TmdbId,
+    pub imdb_id: Option<ImdbTitleId>,
     pub title: String,
     pub overview: Option<String>,
     pub year: Option<i32>,
@@ -142,8 +143,9 @@ pub struct MovieDetailsResponse {
 pub struct SeriesDetailsResponse {
     pub kind: MediaKind,
     pub availability: Availability,
-    pub id: String,
+    pub id: CatalogueId,
     pub tmdb_id: TmdbId,
+    pub imdb_id: Option<ImdbTitleId>,
     pub title: String,
     pub overview: Option<String>,
     pub year: Option<i32>,
@@ -160,7 +162,7 @@ pub struct SeriesDetailsResponse {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct SeasonSummary {
-    pub id: String,
+    pub id: CatalogueId,
     pub season_number: SeasonNumber,
     pub title: String,
     pub overview: Option<String>,
@@ -172,7 +174,7 @@ pub struct SeasonSummary {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SeasonDetailsResponse {
-    pub id: String,
+    pub id: CatalogueId,
     pub series_tmdb_id: TmdbId,
     pub season_number: SeasonNumber,
     pub title: String,
@@ -187,7 +189,7 @@ pub struct SeasonDetailsResponse {
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct Episode {
-    pub id: String,
+    pub id: CatalogueId,
     pub tmdb_id: TmdbId,
     pub season_number: SeasonNumber,
     pub episode_number: i32,
@@ -226,15 +228,6 @@ pub enum MediaKind {
     Series,
 }
 
-impl MediaKind {
-    pub(super) const fn as_str(self) -> &'static str {
-        match self {
-            Self::Movie => "movie",
-            Self::Series => "series",
-        }
-    }
-}
-
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogueIssue {
@@ -247,6 +240,9 @@ impl CatalogueIssue {
     pub(super) fn upstream(integration: Integration, section_id: Option<&str>) -> Self {
         Self {
             source: match integration {
+                Integration::AioStreams => {
+                    unreachable!("AIOStreams does not produce catalogue issues")
+                }
                 Integration::Jellyfin => CatalogueSource::Jellyfin,
                 Integration::Seerr => CatalogueSource::Seerr,
             },
@@ -278,11 +274,11 @@ pub enum CatalogueIssueCode {
 )]
 pub enum TitleSummary {
     Movie {
-        id: String,
+        id: CatalogueId,
         runtime_minutes: Option<u32>,
     },
     Series {
-        id: String,
+        id: CatalogueId,
         number_of_seasons: Option<u32>,
     },
 }
@@ -295,7 +291,7 @@ pub struct TitleSummariesResponse {
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
 pub struct TitleSummaryIssue {
-    pub id: String,
+    pub id: CatalogueId,
     pub code: TitleSummaryIssueCode,
 }
 

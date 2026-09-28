@@ -19,10 +19,13 @@ application database requiring SQL views today.
 | Title details | `/v1/titles/{kind}/{tmdbId}` | Movie or series details, discriminated by `kind` |
 | Series detail page and initial guide | `/v1/titles/series/{tmdbId}?include=initialSeason` | Series details with one initial season embedded |
 | Switch seasons | `/v1/titles/series/{tmdbId}/seasons/{seasonNumber}` | One season and its episodes |
-| Activate local playback | `POST /v1/playback/activate` | A short-lived Jellyfin playback descriptor for an exact movie or episode |
+| Discover playback sources | `POST /v1/playback/sources` | Ordered local and direct AIOStreams candidates represented by opaque IDs |
+| Activate playback | `POST /v1/playback/activate` | A short-lived Jellyfin or AIOStreams direct/HLS descriptor for an exact movie or episode |
 
 `surface` is `discover`, `movies`, or `series`; title `kind` is `movie` or
 `series`. TMDb IDs must be positive integers. Season zero means specials.
+Title detail responses may also include `imdbId`; playback forwards that mapping
+to AIOStreams so lookup matches the identifier used by Stremio addons.
 All routes accept optional `language`; it is preserved in server-generated
 navigation links. Clients must follow `next` unchanged, not decode or increment
 its opaque cursor. Cursors are tied to the collection and language.
@@ -120,10 +123,12 @@ page, then loads only the selected season when the selector changes. It passes
 one title response through the server/client component boundary, avoiding repeated
 copies of the episode guide.
 
-Playback activation is a separate resource keyed by canonical movie or episode
-identity. It is never a side effect of catalogue, summary or detail reads.
-Activation rechecks the exact local copy, negotiates against client capabilities
-and returns an opaque, credential-free media URL. See [Playback](playback.md).
+Playback discovery and activation are separate resources keyed by canonical
+movie or episode identity. Neither is a side effect of catalogue, summary or
+detail reads. Discovery is lazy and side-effect-free; activation rechecks the
+exact local copy and can reuse an opaque discovery snapshot for automatic
+fallback, or validates an explicitly selected opaque AIOStreams candidate, then returns a
+credential-free Reel media URL. See [Playback](playback.md).
 Personalized resume state still has its own future freshness and authorization
 policy rather than entering the shared metadata cache.
 

@@ -17,7 +17,7 @@ pub(super) const STUDIOS: &[CuratedCategory] = &[
         image: "https://image.tmdb.org/t/p/w780_filter(duotone,ffffff,bababa)/wdrCwmRnLFJhEoH8GSfymY85KHT.png",
     },
     CuratedCategory {
-        id: 127928,
+        id: 127_928,
         title: "20th Century Studios",
         image: "https://image.tmdb.org/t/p/w780_filter(duotone,ffffff,bababa)/h0rjX5vjW5r8yEnUBStFarjcLT4.png",
     },
